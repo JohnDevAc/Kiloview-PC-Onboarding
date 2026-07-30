@@ -18,7 +18,6 @@ internal sealed class MainForm : Form
     private readonly Button _scan = UiTheme.RefreshButton("Rescan for Job Configurator");
     private readonly Button _onboard = UiTheme.Button("Onboard this PC", true);
     private readonly Label _completionMessage = UiTheme.Label("", 11, true);
-    private Control? _completionBanner;
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
     private bool _onboardingComplete;
@@ -104,6 +103,8 @@ internal sealed class MainForm : Form
         _servers.Font = new Font("Segoe UI", 10);
         _servers.IntegralHeight = false;
         _serverStatus.ForeColor = UiTheme.Muted;
+        _completionMessage.ForeColor = UiTheme.Green;
+        _completionMessage.Visible = false;
 
         _onboard.Width = 190;
         _onboard.Enabled = false;
@@ -113,13 +114,12 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(24, 18, 24, 18),
             ColumnCount = 2,
-            RowCount = 3
+            RowCount = 2
         };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         body.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
         body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.Controls.Add(Panel(
             "01",
             "Production network",
@@ -137,38 +137,7 @@ internal sealed class MainForm : Form
         var server = Panel("03", "Kiloview job", _jobActivity, _scan, ServerControls(), Padding.Empty);
         body.Controls.Add(server, 0, 1);
         body.SetColumnSpan(server, 2);
-        _completionBanner = BuildCompletionBanner();
-        body.Controls.Add(_completionBanner, 0, 2);
-        body.SetColumnSpan(_completionBanner, 2);
         return body;
-    }
-
-    private Control BuildCompletionBanner()
-    {
-        _completionMessage.ForeColor = UiTheme.Green;
-        _completionMessage.Anchor = AnchorStyles.Left;
-        var banner = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = UiTheme.Panel,
-            Padding = new Padding(16, 11, 16, 11),
-            Margin = new Padding(0, 14, 0, 0),
-            Visible = false
-        };
-        banner.Controls.Add(_completionMessage, 0, 0);
-        banner.Paint += (_, e) =>
-        {
-            using var pen = new Pen(_completionMessage.ForeColor);
-            e.Graphics.DrawRectangle(
-                pen,
-                0,
-                0,
-                banner.ClientSize.Width - 1,
-                banner.ClientSize.Height - 1);
-        };
-        return banner;
     }
 
     private Control NetworkControls()
@@ -196,7 +165,7 @@ internal sealed class MainForm : Form
             RowCount = 3
         };
         container.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        container.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         container.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         container.Controls.Add(_servers, 0, 0);
         container.Controls.Add(_serverStatus, 0, 1);
@@ -204,6 +173,8 @@ internal sealed class MainForm : Form
         var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        _completionMessage.Anchor = AnchorStyles.Left;
+        actions.Controls.Add(_completionMessage, 0, 0);
         actions.Controls.Add(_onboard, 1, 0);
         _onboard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         container.Controls.Add(actions, 0, 2);
@@ -408,7 +379,7 @@ internal sealed class MainForm : Form
             if (!server.SupportsRegistration)
             {
                 ShowCompletion(
-                    $"NDI SETTINGS APPLIED — Update Job Configurator to register this PC.",
+                    "SETTINGS APPLIED",
                     UiTheme.Amber,
                     "Settings applied",
                     [
@@ -439,8 +410,8 @@ internal sealed class MainForm : Form
                 ? $"Ping monitoring: Private profile, source {firewall.RemoteScope}"
                 : $"WARNING: {firewall.Warning}";
             ShowCompletion(
-                $"SUCCESS — {Environment.MachineName} is onboarded to {server.JobName}.",
-                firewall.Applied ? UiTheme.Green : UiTheme.Amber,
+                "SUCCESS",
+                UiTheme.Green,
                 "Onboarding complete",
                 [
                     $"PC: {Environment.MachineName}",
@@ -465,19 +436,15 @@ internal sealed class MainForm : Form
         _completionButtonText = buttonText;
         _completionMessage.Text = message;
         _completionMessage.ForeColor = color;
-        if (_completionBanner is not null)
-        {
-            _completionBanner.Visible = true;
-            _completionBanner.Invalidate();
-        }
+        _completionMessage.Visible = true;
 
         _servers.BeginUpdate();
         _servers.Items.Clear();
         foreach (var line in details)
             _servers.Items.Add(line);
         _servers.EndUpdate();
-        _serverStatus.ForeColor = color;
-        _serverStatus.Text = "Onboarding details are shown above.";
+        _serverStatus.Text = "";
+        _serverStatus.Visible = false;
         _onboard.Text = buttonText;
         _onboard.BackColor = UiTheme.Border;
         _onboard.ForeColor = UiTheme.Muted;
