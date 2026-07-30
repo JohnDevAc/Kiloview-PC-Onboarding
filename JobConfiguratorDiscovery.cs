@@ -73,6 +73,51 @@ internal static class JobConfiguratorDiscovery
             string.IsNullOrWhiteSpace(body) ? $"Registration failed ({(int)response.StatusCode})." : body);
     }
 
+    public static async Task<IReadOnlySet<string>> FindExistingRegistrationsAsync(
+        NetworkChoice network,
+        IReadOnlyList<JobConfiguratorInstance> servers,
+        string endpointId,
+        string hostname,
+        CancellationToken ct)
+    {
+        var registeredServerAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var gate = new object();
+        using var client = NetworkService.CreateBoundClient(network, TimeSpan.FromSeconds(3));
+        await Parallel.ForEachAsync(
+            servers.Where(server => server.SupportsRegistration),
+            new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct },
+            async (server, token) =>
+            {
+                try
+                {
+                    using var response = await client.GetAsync(
+                        new Uri(server.BaseUri, "api/state"),
+                        HttpCompletionOption.ResponseHeadersRead,
+                        token);
+                    if (!response.IsSuccessStatusCode || !IsJson(response))
+                        return;
+
+                    var state = await response.Content.ReadFromJsonAsync<StateResponse>(Json, token);
+                    var match = state?.RemoteWindowsPcs?.Any(endpoint =>
+                        string.Equals(endpoint.EndpointId, endpointId, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(endpoint.Address, network.Address, StringComparison.Ordinal)
+                        || string.Equals(endpoint.Hostname, hostname, StringComparison.OrdinalIgnoreCase)) == true;
+                    if (match)
+                    {
+                        lock (gate)
+                            registeredServerAddresses.Add(server.Address);
+                    }
+                }
+                catch (Exception ex) when (ex is HttpRequestException
+                    or TaskCanceledException
+                    or JsonException)
+                {
+                    // Availability notification is best-effort; discovery remains usable.
+                }
+            });
+        return registeredServerAddresses;
+    }
+
     private static async Task<JobConfiguratorInstance?> ProbeAsync(
         HttpClient client,
         IPAddress address,
@@ -148,6 +193,13 @@ internal static class JobConfiguratorDiscovery
         string? Channel,
         string JobName,
         string NdiDiscoveryServerIp);
-    private sealed record StateResponse(LegacyJob? LastJob);
+    private sealed record StateResponse(
+        LegacyJob? LastJob,
+        IReadOnlyList<RemoteWindowsPcResponse>? RemoteWindowsPcs);
     private sealed record LegacyJob(string JobName, string NdiDiscoveryServerIp);
+    private sealed record RemoteWindowsPcResponse(
+        string EndpointId,
+        string Hostname,
+        string Address,
+        string Status);
 }

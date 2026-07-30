@@ -29,12 +29,14 @@ internal sealed record JobConfiguratorInstance(
     string Channel,
     string JobName,
     string NdiDiscoveryServerIp,
-    bool SupportsRegistration)
+    bool SupportsRegistration,
+    bool AlreadyOnboarded = false)
 {
     public override string ToString()
     {
         var compatibility = SupportsRegistration ? "" : " · update required";
-        return $"{JobName} — {Address} · v{Version} {Channel}{compatibility}";
+        var registration = AlreadyOnboarded ? " · already onboarded" : "";
+        return $"{JobName} — {Address} · v{Version} {Channel}{compatibility}{registration}";
     }
 }
 

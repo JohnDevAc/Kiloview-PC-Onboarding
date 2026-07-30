@@ -349,17 +349,37 @@ internal sealed class MainForm : Form
             _serverStatus.ForeColor = UiTheme.Muted;
             _serverStatus.Text = $"Searching {ScanDescription(network)} for Kiloview Job Configurator…";
             var servers = await JobConfiguratorDiscovery.FindAsync(network, null, token);
-            foreach (var server in servers) _servers.Items.Add(server);
+            var registeredAddresses = await JobConfiguratorDiscovery.FindExistingRegistrationsAsync(
+                network,
+                servers,
+                ConsentStore.EndpointId(),
+                Environment.MachineName,
+                token);
+            var displayedServers = servers
+                .Select(server => server with
+                {
+                    AlreadyOnboarded = registeredAddresses.Contains(server.Address)
+                })
+                .ToArray();
+            foreach (var server in displayedServers)
+                _servers.Items.Add(server);
             if (_servers.Items.Count == 1) _servers.SelectedIndex = 0;
-            var compatible = servers.Count(server => server.SupportsRegistration);
-            _serverStatus.Text = servers.Count switch
-            {
-                0 => "No active job was found. Check LAN access, the selected adapter, and the firewall profile.",
-                _ when compatible == 0 => "Found Job Configurator, but it must be updated before this PC can register.",
-                _ when compatible < servers.Count => $"Found {servers.Count} active jobs; update entries marked “update required” before use.",
-                _ => $"Found {servers.Count} active job{(servers.Count == 1 ? "" : "s")}."
-            };
-            _serverStatus.ForeColor = servers.Count == 0 ? UiTheme.Amber : UiTheme.Green;
+            var compatible = displayedServers.Count(server => server.SupportsRegistration);
+            var existingJobs = displayedServers
+                .Where(server => server.AlreadyOnboarded)
+                .Select(server => server.JobName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            _serverStatus.Text = existingJobs.Length > 0
+                ? $"Already onboarded: {string.Join(", ", existingJobs)}. Select a job to update its registration."
+                : displayedServers.Length switch
+                {
+                    0 => "No active job was found. Check LAN access, the selected adapter, and the firewall profile.",
+                    _ when compatible == 0 => "Found Job Configurator, but it must be updated before this PC can register.",
+                    _ when compatible < displayedServers.Length => $"Found {displayedServers.Length} active jobs; update entries marked “update required” before use.",
+                    _ => $"Found {displayedServers.Length} active job{(displayedServers.Length == 1 ? "" : "s")}."
+                };
+            _serverStatus.ForeColor = displayedServers.Length == 0 ? UiTheme.Amber : UiTheme.Green;
         });
         UpdateReadyState();
     }
@@ -506,7 +526,9 @@ internal sealed class MainForm : Form
             ? _completionButtonText
             : selectedServer is { SupportsRegistration: false }
                 ? "Apply NDI settings"
-                : "Onboard this PC";
+                : selectedServer is { AlreadyOnboarded: true }
+                    ? "Update this PC"
+                    : "Onboard this PC";
         UseWaitCursor = busy;
         _network.Enabled = !busy;
         _refreshNetwork.Enabled = !busy;

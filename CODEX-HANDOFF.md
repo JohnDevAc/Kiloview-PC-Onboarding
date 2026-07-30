@@ -24,6 +24,9 @@ compatibility endpoints, persistent remote-PC records, and monitor cards.
 - Scans the selected subnet for Job Configurator on TCP 8091.
 - Automatically rescans for Job Configurator whenever the selected adapter
   changes.
+- Checks every compatible discovered Configurator's state for this endpoint ID,
+  selected address, or hostname, marks matching jobs as already onboarded, and
+  offers an idempotent registration update.
 - Detects older Configurators through their state API and labels them as
   requiring an update; they can apply local NDI settings but cannot register.
 - Backs up and applies NDI preferred-interface, job-group, and discovery-server
@@ -63,8 +66,8 @@ Use `scripts\Publish.ps1` for self-contained packaging or add
 
 Current local packages:
 
-- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.295 MB,
-  SHA-256 `580D3DB0639AE967DA28D7DEC09CD4B7372A3AD8561271568751FBD1984C7E65`
+- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.298 MB,
+  SHA-256 `9B878E0DC3C5149A6A8BD31849D518389914351E50526DCE60007DC773C2FA55`
 - `artifacts/Kiloview-PC-Onboarding-win-x64-framework-dependent.zip` —
-  0.416 MB, SHA-256
-  `42502529E6A916F1749C966030968EBFE38EB008524D0F23A016668B1F62370E`
+  0.419 MB, SHA-256
+  `E945DFD9A84114839F6BA1A44646BE5C38744ED057627B26128D2D6A80B6C535`

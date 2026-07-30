@@ -17,6 +17,8 @@ HTTP API.
    installer so the user can review NDI's own licence;
 5. scans the selected adapter's local subnet for Kiloview Job Configurator on
    TCP port 8091, automatically rescanning whenever the selected adapter changes;
+   each discovered compatible server is also checked for an existing
+   registration matching this PC's stable endpoint ID, address, or hostname;
 6. after confirming NDI Access Manager and NDI Discovery are closed, backs up
    and writes the preferred NDI interface, job send/receive group, and discovery
    server, then configures NDI Discovery to use Access Manager settings; and
@@ -38,6 +40,11 @@ monitoring scope, and restart reminder. A compact `SUCCESS` label appears
 inside the lower-left of step 3, and the onboarding button remains disabled for
 the rest of that session. The elevated application also reclaims foreground
 focus when its first window is shown.
+
+When discovery finds this PC in one or more local Job Configurators, those jobs
+are marked `already onboarded` in step 3 and the status line names the matching
+jobs. Selecting one changes the action to `Update this PC`; registration remains
+idempotent.
 
 The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
 onboarding updates that rule instead of adding duplicates and does not alter
