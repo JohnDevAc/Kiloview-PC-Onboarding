@@ -27,8 +27,10 @@ HTTP API.
    the utility exits.
 
 Each main-screen section uses a compact activity spinner while it is working
-and a green tick when it completes. The Job Configurator page always opens
-after onboarding, while the utility remains in the foreground.
+and a green tick when it completes. Each section also has the same compact
+clockwise refresh control, including manual Job Configurator rescanning in
+step 3. The Job Configurator page always opens after onboarding, while the
+utility remains in the foreground.
 
 The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
 onboarding updates that rule instead of adding duplicates and does not alter

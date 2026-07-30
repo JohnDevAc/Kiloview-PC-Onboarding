@@ -3,7 +3,7 @@
 ## Project
 
 - Product: Kiloview PC Onboarding Utility
-- Version: `0.1.0-dev.2`
+- Version: `0.1.0-dev.3`
 - Intended default branch: `main`
 - Owner/copyright: John Lightfoot
 - Licence: proprietary, free for unmodified non-commercial use
@@ -33,6 +33,8 @@ compatibility endpoints, persistent remote-PC records, and monitor cards.
 - Uses Per-Monitor-V2 DPI scaling and a two-column responsive layout for
   high-scaling laptop displays.
 - Uses per-section spinner/tick activity indicators instead of a progress bar.
+- Uses the same compact clockwise refresh control in all three cards; step 3
+  has no separate scan button.
 - Always opens the Job Configurator page after onboarding and keeps the utility
   in the foreground.
 - Creates or updates the single branded `Kiloview PC Onboarding - ICMPv4 Echo`
@@ -58,7 +60,7 @@ Use `scripts\Publish.ps1` for self-contained packaging or add
 Current local packages:
 
 - `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.294 MB,
-  SHA-256 `F93FAF7E0C85AF2C53CA15154A16765B3D029A5638F1294FF55E65911B8D6C68`
+  SHA-256 `49D74E554A74CD2BA472816F9F9B36A496D58BBAE94E756589234AF9C6F0C744`
 - `artifacts/Kiloview-PC-Onboarding-win-x64-framework-dependent.zip` —
-  0.414 MB, SHA-256
-  `5EF725AB87B594A582227CD166C1C450FF45C718F04553D976B64D4994355536`
+  0.415 MB, SHA-256
+  `62D5F825D380885D0FDB8373088FFAF06E3AA45FC21B44D8F2C6A7D5D5C1D2C8`

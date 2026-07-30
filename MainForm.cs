@@ -15,7 +15,7 @@ internal sealed class MainForm : Form
     private readonly ToolTip _tooltips = new();
     private readonly Button _refreshNetwork = UiTheme.RefreshButton("Refresh network adapters");
     private readonly Button _ndiAction = UiTheme.RefreshButton("Check NDI Tools");
-    private readonly Button _scan = UiTheme.Button("Scan network", true);
+    private readonly Button _scan = UiTheme.RefreshButton("Rescan for Job Configurator");
     private readonly Button _onboard = UiTheme.Button("Onboard this PC", true);
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
@@ -91,6 +91,7 @@ internal sealed class MainForm : Form
         _ndiStatus.MaximumSize = new Size(680, 0);
         _tooltips.SetToolTip(_refreshNetwork, "Refresh network adapters");
         _tooltips.SetToolTip(_ndiAction, "Check NDI Tools again");
+        _tooltips.SetToolTip(_scan, "Rescan for Job Configurator");
 
         _servers.Dock = DockStyle.Fill;
         _servers.BackColor = Color.FromArgb(10, 18, 17);
@@ -128,7 +129,7 @@ internal sealed class MainForm : Form
             _ndiAction,
             NdiControls(),
             new Padding(7, 0, 0, 14)), 1, 0);
-        var server = Panel("03", "Kiloview job", _jobActivity, null, ServerControls(), Padding.Empty);
+        var server = Panel("03", "Kiloview job", _jobActivity, _scan, ServerControls(), Padding.Empty);
         body.Controls.Add(server, 0, 1);
         body.SetColumnSpan(server, 2);
         return body;
@@ -164,12 +165,10 @@ internal sealed class MainForm : Form
         container.Controls.Add(_servers, 0, 0);
         container.Controls.Add(_serverStatus, 0, 1);
 
-        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 };
-        actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        actions.Controls.Add(_scan, 0, 0);
-        actions.Controls.Add(_onboard, 2, 0);
+        actions.Controls.Add(_onboard, 1, 0);
         _onboard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         container.Controls.Add(actions, 0, 2);
         return container;
