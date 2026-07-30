@@ -32,6 +32,13 @@ clockwise refresh control, including manual Job Configurator rescanning in
 step 3. The Job Configurator page always opens after onboarding, while the
 utility remains in the foreground.
 
+Completion does not use a popup. Step 3 is replaced with a line-by-line summary
+of the PC, job, preferred interface, NDI discovery server, NDI group, firewall
+monitoring scope, and restart reminder. A success banner appears below step 3,
+and the onboarding button remains disabled for the rest of that session. The
+elevated application also reclaims foreground focus when its first window is
+shown.
+
 The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
 onboarding updates that rule instead of adding duplicates and does not alter
 unrelated firewall rules. Its remote scope is the selected Job Configurator IP

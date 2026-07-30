@@ -58,6 +58,7 @@ internal static class UiTheme
         // the font point sizes so they are not enlarged twice.
         form.AutoScaleMode = AutoScaleMode.None;
         form.Load += (_, _) => ScaleLayoutForCurrentDpi(form);
+        form.Shown += (_, _) => ReclaimForeground(form);
     }
 
     public static void MaximizeIfNeeded(Form form)
@@ -65,6 +66,44 @@ internal static class UiTheme
         var workingArea = Screen.FromControl(form).WorkingArea;
         if (form.Width > workingArea.Width || form.Height > workingArea.Height)
             form.WindowState = FormWindowState.Maximized;
+    }
+
+    public static void ReclaimForeground(Form form, int durationMilliseconds = 1800)
+    {
+        if (form.IsDisposed)
+            return;
+
+        var remainingAttempts = Math.Max(1, durationMilliseconds / 200);
+        var timer = new System.Windows.Forms.Timer { Interval = 200 };
+        void Activate()
+        {
+            if (form.WindowState == FormWindowState.Minimized)
+                form.WindowState = FormWindowState.Normal;
+            form.TopMost = true;
+            form.BringToFront();
+            form.Activate();
+        }
+
+        timer.Tick += (_, _) =>
+        {
+            if (form.IsDisposed)
+            {
+                timer.Dispose();
+                return;
+            }
+
+            Activate();
+            if (--remainingAttempts > 0)
+                return;
+
+            timer.Stop();
+            form.TopMost = false;
+            form.BringToFront();
+            form.Activate();
+            timer.Dispose();
+        };
+        Activate();
+        timer.Start();
     }
 
     private static void ScaleLayoutForCurrentDpi(Form form)

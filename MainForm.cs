@@ -17,8 +17,12 @@ internal sealed class MainForm : Form
     private readonly Button _ndiAction = UiTheme.RefreshButton("Check NDI Tools");
     private readonly Button _scan = UiTheme.RefreshButton("Rescan for Job Configurator");
     private readonly Button _onboard = UiTheme.Button("Onboard this PC", true);
+    private readonly Label _completionMessage = UiTheme.Label("", 11, true);
+    private Control? _completionBanner;
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
+    private bool _onboardingComplete;
+    private string _completionButtonText = "Onboarding complete";
 
     public MainForm(Icon icon)
     {
@@ -109,12 +113,13 @@ internal sealed class MainForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(24, 18, 24, 18),
             ColumnCount = 2,
-            RowCount = 2
+            RowCount = 3
         };
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         body.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
         body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        body.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         body.Controls.Add(Panel(
             "01",
             "Production network",
@@ -132,7 +137,38 @@ internal sealed class MainForm : Form
         var server = Panel("03", "Kiloview job", _jobActivity, _scan, ServerControls(), Padding.Empty);
         body.Controls.Add(server, 0, 1);
         body.SetColumnSpan(server, 2);
+        _completionBanner = BuildCompletionBanner();
+        body.Controls.Add(_completionBanner, 0, 2);
+        body.SetColumnSpan(_completionBanner, 2);
         return body;
+    }
+
+    private Control BuildCompletionBanner()
+    {
+        _completionMessage.ForeColor = UiTheme.Green;
+        _completionMessage.Anchor = AnchorStyles.Left;
+        var banner = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = UiTheme.Panel,
+            Padding = new Padding(16, 11, 16, 11),
+            Margin = new Padding(0, 14, 0, 0),
+            Visible = false
+        };
+        banner.Controls.Add(_completionMessage, 0, 0);
+        banner.Paint += (_, e) =>
+        {
+            using var pen = new Pen(_completionMessage.ForeColor);
+            e.Graphics.DrawRectangle(
+                pen,
+                0,
+                0,
+                banner.ClientSize.Width - 1,
+                banner.ClientSize.Height - 1);
+        };
+        return banner;
     }
 
     private Control NetworkControls()
@@ -371,20 +407,19 @@ internal sealed class MainForm : Form
             await NdiConfigurationService.ApplyAsync(network, server, token);
             if (!server.SupportsRegistration)
             {
-                _serverStatus.ForeColor = UiTheme.Amber;
-                _serverStatus.Text =
-                    $"NDI settings were applied for {server.JobName}. Update Job Configurator to register this PC.";
+                ShowCompletion(
+                    $"NDI SETTINGS APPLIED — Update Job Configurator to register this PC.",
+                    UiTheme.Amber,
+                    "Settings applied",
+                    [
+                        $"Job: {server.JobName}",
+                        $"Preferred interface: {network.Address}",
+                        $"NDI discovery server: {server.NdiDiscoveryServerIp}",
+                        $"NDI group: {server.JobName}",
+                        "NDI Discovery: Use Access Manager Settings",
+                        "Registration: Update Job Configurator before registering this PC."
+                    ]);
                 OpenJobConfiguratorKeepingFocus(server.BaseUri);
-                MessageBox.Show(
-                    this,
-                    $"Local NDI settings were applied for {server.JobName}.\n\n"
-                    + $"Preferred interface: {network.Address}\n"
-                    + $"NDI discovery server: {server.NdiDiscoveryServerIp}\n"
-                    + "NDI Discovery: Use Access Manager Settings\n\n"
-                    + "Update Job Configurator before registering this PC.",
-                    "NDI settings applied",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Warning);
                 return;
             }
             var request = new RegistrationRequest(
@@ -400,53 +435,60 @@ internal sealed class MainForm : Form
             _serverStatus.Text = "Registering this PC with the selected job…";
             await JobConfiguratorDiscovery.RegisterAsync(network, server, request, token);
             var firewall = FirewallService.EnsurePingRule(network, server);
-            _serverStatus.ForeColor = firewall.Applied ? UiTheme.Green : UiTheme.Amber;
-            _serverStatus.Text = firewall.Applied
-                ? $"{Environment.MachineName} is onboarded to {server.JobName} and available for ping monitoring."
-                : $"{Environment.MachineName} is onboarded, but the Windows Firewall ping rule needs attention.";
-            OpenJobConfiguratorKeepingFocus(server.BaseUri);
             var firewallMessage = firewall.Applied
                 ? $"Ping monitoring: Private profile, source {firewall.RemoteScope}"
                 : $"WARNING: {firewall.Warning}";
-            MessageBox.Show(
-                this,
-                $"This PC is now onboarded to {server.JobName}.\n\n"
-                + $"Preferred interface: {network.Address}\n"
-                + $"NDI discovery server: {server.NdiDiscoveryServerIp}\n"
-                + $"NDI group: {server.JobName}\n"
-                + $"{firewallMessage}\n\n"
-                + "Restart any running NDI applications.",
+            ShowCompletion(
+                $"SUCCESS — {Environment.MachineName} is onboarded to {server.JobName}.",
+                firewall.Applied ? UiTheme.Green : UiTheme.Amber,
                 "Onboarding complete",
-                MessageBoxButtons.OK,
-                firewall.Applied ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                [
+                    $"PC: {Environment.MachineName}",
+                    $"Job: {server.JobName}",
+                    $"Preferred interface: {network.Address}",
+                    $"NDI discovery server: {server.NdiDiscoveryServerIp}",
+                    $"NDI group: {server.JobName}",
+                    firewallMessage,
+                    "Restart any running NDI applications."
+                ]);
+            OpenJobConfiguratorKeepingFocus(server.BaseUri);
         });
+    }
+
+    private void ShowCompletion(
+        string message,
+        Color color,
+        string buttonText,
+        IEnumerable<string> details)
+    {
+        _onboardingComplete = true;
+        _completionButtonText = buttonText;
+        _completionMessage.Text = message;
+        _completionMessage.ForeColor = color;
+        if (_completionBanner is not null)
+        {
+            _completionBanner.Visible = true;
+            _completionBanner.Invalidate();
+        }
+
+        _servers.BeginUpdate();
+        _servers.Items.Clear();
+        foreach (var line in details)
+            _servers.Items.Add(line);
+        _servers.EndUpdate();
+        _serverStatus.ForeColor = color;
+        _serverStatus.Text = "Onboarding details are shown above.";
+        _onboard.Text = buttonText;
+        _onboard.BackColor = UiTheme.Border;
+        _onboard.ForeColor = UiTheme.Muted;
+        _onboard.FlatAppearance.BorderColor = UiTheme.Border;
+        _onboard.Enabled = false;
     }
 
     private void OpenJobConfiguratorKeepingFocus(Uri address)
     {
         Process.Start(new ProcessStartInfo(address.ToString()) { UseShellExecute = true });
-
-        var attempts = 0;
-        var focusTimer = new System.Windows.Forms.Timer { Interval = 250 };
-        focusTimer.Tick += (_, _) =>
-        {
-            if (IsDisposed)
-            {
-                focusTimer.Dispose();
-                return;
-            }
-
-            BringToFront();
-            Activate();
-            if (++attempts < 4)
-                return;
-
-            focusTimer.Stop();
-            focusTimer.Dispose();
-        };
-        BringToFront();
-        Activate();
-        focusTimer.Start();
+        UiTheme.ReclaimForeground(this, 4000);
     }
 
     private void UpdateNdiActionHint()
@@ -493,16 +535,19 @@ internal sealed class MainForm : Form
     private void SetBusy(bool busy)
     {
         var selectedServer = _servers.SelectedItem as JobConfiguratorInstance;
-        _onboard.Text = selectedServer is { SupportsRegistration: false }
-            ? "Apply NDI settings"
-            : "Onboard this PC";
+        _onboard.Text = _onboardingComplete
+            ? _completionButtonText
+            : selectedServer is { SupportsRegistration: false }
+                ? "Apply NDI settings"
+                : "Onboard this PC";
         UseWaitCursor = busy;
         _network.Enabled = !busy;
         _refreshNetwork.Enabled = !busy;
         _ndiAction.Enabled = !busy;
         _scan.Enabled = !busy;
         _servers.Enabled = !busy;
-        _onboard.Enabled = !busy
+        _onboard.Enabled = !_onboardingComplete
+            && !busy
             && _network.SelectedItem is NetworkChoice
             && selectedServer is not null
             && _ndi?.UpdateRequired == false;
