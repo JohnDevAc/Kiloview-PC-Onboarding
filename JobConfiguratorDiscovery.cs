@@ -79,7 +79,10 @@ internal static class JobConfiguratorDiscovery
         CancellationToken ct)
     {
         var baseUri = new Uri($"http://{address}:8091/");
-        using var healthResponse = await client.GetAsync(new Uri(baseUri, "api/health"), ct);
+        using var healthResponse = await client.GetAsync(
+            new Uri(baseUri, "api/health"),
+            HttpCompletionOption.ResponseHeadersRead,
+            ct);
         if (!healthResponse.IsSuccessStatusCode) return null;
         var health = await healthResponse.Content.ReadFromJsonAsync<HealthResponse>(Json, ct);
         if (health is null
@@ -88,20 +91,55 @@ internal static class JobConfiguratorDiscovery
             && !string.Equals(health.Product, "Kiloview Job Configurator", StringComparison.Ordinal))
             return null;
 
-        using var profileResponse = await client.GetAsync(new Uri(baseUri, "api/pc-onboarding/profile"), ct);
-        if (!profileResponse.IsSuccessStatusCode) return null;
-        var profile = await profileResponse.Content.ReadFromJsonAsync<ProfileResponse>(Json, ct);
-        if (profile is null || string.IsNullOrWhiteSpace(profile.JobName)
-            || string.IsNullOrWhiteSpace(profile.NdiDiscoveryServerIp))
+        using var profileResponse = await client.GetAsync(
+            new Uri(baseUri, "api/pc-onboarding/profile"),
+            HttpCompletionOption.ResponseHeadersRead,
+            ct);
+        if (profileResponse.IsSuccessStatusCode && IsJson(profileResponse))
+        {
+            var profile = await profileResponse.Content.ReadFromJsonAsync<ProfileResponse>(Json, ct);
+            if (profile is null || string.IsNullOrWhiteSpace(profile.JobName)
+                || string.IsNullOrWhiteSpace(profile.NdiDiscoveryServerIp))
+                return null;
+            return new(
+                address.ToString(),
+                baseUri,
+                health.Version ?? profile.Version ?? "unknown",
+                health.Channel ?? profile.Channel ?? "unknown",
+                profile.JobName,
+                profile.NdiDiscoveryServerIp,
+                true);
+        }
+
+        // Older Configurators route the unknown profile URL to index.html.
+        // Their existing state endpoint is enough to discover and identify them.
+        using var stateResponse = await client.GetAsync(
+            new Uri(baseUri, "api/state"),
+            HttpCompletionOption.ResponseHeadersRead,
+            ct);
+        if (!stateResponse.IsSuccessStatusCode || !IsJson(stateResponse)) return null;
+        var state = await stateResponse.Content.ReadFromJsonAsync<StateResponse>(Json, ct);
+        if (state?.LastJob is null
+            || string.IsNullOrWhiteSpace(state.LastJob.JobName)
+            || string.IsNullOrWhiteSpace(state.LastJob.NdiDiscoveryServerIp))
             return null;
         return new(
             address.ToString(),
             baseUri,
-            health.Version ?? profile.Version ?? "unknown",
-            health.Channel ?? profile.Channel ?? "unknown",
-            profile.JobName,
-            profile.NdiDiscoveryServerIp);
+            health.Version ?? "unknown",
+            health.Channel ?? "unknown",
+            state.LastJob.JobName,
+            state.LastJob.NdiDiscoveryServerIp,
+            false);
     }
+
+    private static bool IsJson(HttpResponseMessage response) =>
+        response.Content.Headers.ContentType?.MediaType?.EndsWith(
+            "/json",
+            StringComparison.OrdinalIgnoreCase) == true
+        || response.Content.Headers.ContentType?.MediaType?.EndsWith(
+            "+json",
+            StringComparison.OrdinalIgnoreCase) == true;
 
     private sealed record HealthResponse(string Status, string? Product, string? Version, string? Channel);
     private sealed record ProfileResponse(
@@ -110,4 +148,6 @@ internal static class JobConfiguratorDiscovery
         string? Channel,
         string JobName,
         string NdiDiscoveryServerIp);
+    private sealed record StateResponse(LegacyJob? LastJob);
+    private sealed record LegacyJob(string JobName, string NdiDiscoveryServerIp);
 }

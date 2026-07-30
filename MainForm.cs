@@ -7,39 +7,43 @@ internal sealed class MainForm : Form
     private readonly NdiToolsService _ndiTools = new();
     private readonly ComboBox _network = new();
     private readonly Label _ndiStatus = UiTheme.Label("Checking NDI Tools…", 10);
-    private readonly Label _networkHint = UiTheme.Label("", 9);
     private readonly ListBox _servers = new();
     private readonly Label _serverStatus = UiTheme.Label("Select a network adapter to begin.", 10);
-    private readonly ProgressBar _progress = new();
-    private readonly Button _refreshNetwork = UiTheme.Button("Refresh adapters");
-    private readonly Button _ndiAction = UiTheme.Button("Check NDI Tools");
+    private readonly ActivityIndicator _networkActivity = new();
+    private readonly ActivityIndicator _ndiActivity = new();
+    private readonly ActivityIndicator _jobActivity = new();
+    private readonly ToolTip _tooltips = new();
+    private readonly Button _refreshNetwork = UiTheme.RefreshButton("Refresh network adapters");
+    private readonly Button _ndiAction = UiTheme.RefreshButton("Check NDI Tools");
     private readonly Button _scan = UiTheme.Button("Scan network", true);
     private readonly Button _onboard = UiTheme.Button("Onboard this PC", true);
-    private readonly CheckBox _openJob = new();
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
 
-    public MainForm(Icon icon, NetworkChoice initialNetwork)
+    public MainForm(Icon icon)
     {
+        UiTheme.ConfigureForm(this);
         Icon = icon;
         Text = "Kiloview PC Onboarding";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(880, 690);
-        Size = new Size(1000, 760);
+        MinimumSize = new Size(520, 360);
+        Size = new Size(900, 620);
         BackColor = UiTheme.Background;
         ForeColor = UiTheme.Text;
         Font = new Font("Segoe UI", 9);
 
         Controls.Add(BuildBody());
         Controls.Add(BuildHeader());
-        LoadNetworks(initialNetwork);
+        LoadNetworks();
         WireEvents();
         Shown += async (_, _) =>
         {
+            UiTheme.MaximizeIfNeeded(this);
             await CheckNdiAsync();
             if (_network.SelectedItem is NetworkChoice) await ScanAsync();
         };
         FormClosing += (_, _) => _operation?.Cancel();
+        FormClosed += (_, _) => _tooltips.Dispose();
     }
 
     private Control BuildHeader()
@@ -54,25 +58,24 @@ internal sealed class MainForm : Form
         var header = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 104,
-            Padding = new Padding(28, 18, 28, 12),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(24, 16, 24, 12),
             ColumnCount = 2,
             RowCount = 2,
             BackColor = UiTheme.Panel
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var copy = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false
-        };
-        copy.Controls.Add(title);
-        copy.Controls.Add(subtitle);
-        header.Controls.Add(copy, 0, 0);
-        header.SetRowSpan(copy, 2);
+        header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        header.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        title.Anchor = AnchorStyles.Left;
+        subtitle.Anchor = AnchorStyles.Left;
+        version.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        header.Controls.Add(title, 0, 0);
         header.Controls.Add(version, 1, 0);
+        header.Controls.Add(subtitle, 0, 1);
+        header.SetColumnSpan(subtitle, 2);
         return header;
     }
 
@@ -83,11 +86,11 @@ internal sealed class MainForm : Form
         _network.BackColor = Color.FromArgb(10, 18, 17);
         _network.ForeColor = UiTheme.Text;
         _network.Height = 34;
-        _networkHint.ForeColor = UiTheme.Muted;
 
         _ndiStatus.ForeColor = UiTheme.Muted;
         _ndiStatus.MaximumSize = new Size(680, 0);
-        _ndiAction.Width = 170;
+        _tooltips.SetToolTip(_refreshNetwork, "Refresh network adapters");
+        _tooltips.SetToolTip(_ndiAction, "Check NDI Tools again");
 
         _servers.Dock = DockStyle.Fill;
         _servers.BackColor = Color.FromArgb(10, 18, 17);
@@ -97,57 +100,53 @@ internal sealed class MainForm : Form
         _servers.IntegralHeight = false;
         _serverStatus.ForeColor = UiTheme.Muted;
 
-        _progress.Dock = DockStyle.Fill;
-        _progress.Style = ProgressBarStyle.Continuous;
-        _progress.Visible = false;
-
-        _openJob.Text = "Open the Job Configurator after onboarding";
-        _openJob.Checked = true;
-        _openJob.AutoSize = true;
-        _openJob.ForeColor = UiTheme.Text;
         _onboard.Width = 190;
         _onboard.Enabled = false;
 
         var body = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Padding = new Padding(28, 24, 28, 24),
-            ColumnCount = 1,
-            RowCount = 3
+            Padding = new Padding(24, 18, 24, 18),
+            ColumnCount = 2,
+            RowCount = 2
         };
-        body.RowStyles.Add(new RowStyle(SizeType.Absolute, 138));
-        body.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        body.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
         body.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        body.Controls.Add(Panel("01", "Production network", "All discovery and NDI traffic will use this adapter.",
-            NetworkControls()), 0, 0);
-        body.Controls.Add(Panel("02", "NDI Tools", "The official NDI installer is used when an update is required.",
-            NdiControls()), 0, 1);
-        body.Controls.Add(Panel("03", "Kiloview job", "The utility scans this adapter for Job Configurator on TCP 8091.",
-            ServerControls()), 0, 2);
+        body.Controls.Add(Panel(
+            "01",
+            "Production network",
+            _networkActivity,
+            _refreshNetwork,
+            NetworkControls(),
+            new Padding(0, 0, 7, 14)), 0, 0);
+        body.Controls.Add(Panel(
+            "02",
+            "NDI Tools",
+            _ndiActivity,
+            _ndiAction,
+            NdiControls(),
+            new Padding(7, 0, 0, 14)), 1, 0);
+        var server = Panel("03", "Kiloview job", _jobActivity, null, ServerControls(), Padding.Empty);
+        body.Controls.Add(server, 0, 1);
+        body.SetColumnSpan(server, 2);
         return body;
     }
 
     private Control NetworkControls()
     {
-        var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         row.Controls.Add(_network, 0, 0);
-        row.Controls.Add(_refreshNetwork, 1, 0);
-        row.Controls.Add(_networkHint, 0, 1);
-        row.SetColumnSpan(_networkHint, 2);
         return row;
     }
 
     private Control NdiControls()
     {
-        var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        var row = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         row.Controls.Add(_ndiStatus, 0, 0);
-        row.Controls.Add(_ndiAction, 1, 0);
-        row.Controls.Add(_progress, 0, 1);
-        row.SetColumnSpan(_progress, 2);
         return row;
     }
 
@@ -160,8 +159,8 @@ internal sealed class MainForm : Form
             RowCount = 3
         };
         container.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
+        container.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
         container.Controls.Add(_servers, 0, 0);
         container.Controls.Add(_serverStatus, 0, 1);
 
@@ -170,53 +169,75 @@ internal sealed class MainForm : Form
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         actions.Controls.Add(_scan, 0, 0);
-        actions.Controls.Add(_openJob, 1, 0);
         actions.Controls.Add(_onboard, 2, 0);
+        _onboard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         container.Controls.Add(actions, 0, 2);
         return container;
     }
 
-    private static Control Panel(string number, string title, string subtitle, Control content)
+    private static Control Panel(
+        string number,
+        string title,
+        ActivityIndicator activity,
+        Button? refresh,
+        Control content,
+        Padding margin)
     {
         var numberLabel = UiTheme.Label(number, 9, true);
         numberLabel.ForeColor = UiTheme.Background;
         numberLabel.BackColor = UiTheme.Green;
         numberLabel.Padding = new Padding(7, 4, 7, 4);
         var heading = UiTheme.Label(title, 13, true);
-        var note = UiTheme.Label(subtitle, 9);
-        note.ForeColor = UiTheme.Muted;
-        var copy = new FlowLayoutPanel
+        heading.Anchor = AnchorStyles.Left;
+        var header = new TableLayoutPanel
         {
-            AutoSize = true,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false
+            Dock = DockStyle.Fill,
+            ColumnCount = refresh is null ? 3 : 5,
+            RowCount = 1,
+            Margin = new Padding(0, 0, 0, 12)
         };
-        copy.Controls.Add(heading);
-        copy.Controls.Add(note);
-        var header = new FlowLayoutPanel
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 28));
+        if (refresh is not null)
         {
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            FlowDirection = FlowDirection.LeftToRight,
-            Padding = new Padding(0, 0, 0, 10)
-        };
-        header.Controls.Add(numberLabel);
-        header.Controls.Add(copy);
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 10));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 24));
+        }
+        numberLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+        activity.Anchor = AnchorStyles.Right;
+        header.Controls.Add(numberLabel, 0, 0);
+        header.Controls.Add(heading, 1, 0);
+        header.Controls.Add(activity, 2, 0);
+        if (refresh is not null)
+        {
+            refresh.Anchor = AnchorStyles.Right;
+            header.Controls.Add(refresh, 4, 0);
+        }
         content.Dock = DockStyle.Fill;
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(header, 0, 0);
+        layout.Controls.Add(content, 0, 1);
         var panel = new System.Windows.Forms.Panel
         {
             Dock = DockStyle.Fill,
             BackColor = UiTheme.Panel,
-            Padding = new Padding(20),
-            Margin = new Padding(0, 0, 0, 14)
+            Padding = new Padding(18, 14, 18, 14),
+            Margin = margin
         };
         panel.Paint += (_, e) =>
         {
             using var pen = new Pen(UiTheme.Border);
             e.Graphics.DrawRectangle(pen, 0, 0, panel.ClientSize.Width - 1, panel.ClientSize.Height - 1);
         };
-        panel.Controls.Add(content);
-        panel.Controls.Add(header);
+        panel.Controls.Add(layout);
         return panel;
     }
 
@@ -230,18 +251,28 @@ internal sealed class MainForm : Form
         };
         _scan.Click += async (_, _) => await ScanAsync();
         _servers.SelectedIndexChanged += (_, _) => UpdateReadyState();
-        _network.SelectedIndexChanged += (_, _) =>
+        _network.SelectedIndexChanged += async (_, _) =>
         {
             if (_network.SelectedItem is NetworkChoice selected)
-                _networkHint.Text = $"Scanning {ScanDescription(selected)}; traffic is bound to {selected.Address}.";
+            {
+                _networkActivity.State = ActivityState.Complete;
+            }
+            else
+            {
+                _networkActivity.State = ActivityState.Idle;
+            }
             _servers.Items.Clear();
+            _jobActivity.State = ActivityState.Idle;
             UpdateReadyState();
+            if (_network.SelectedItem is NetworkChoice)
+                await ScanAsync();
         };
         _onboard.Click += async (_, _) => await OnboardAsync();
     }
 
     private void LoadNetworks(NetworkChoice? requested = null)
     {
+        _networkActivity.State = ActivityState.Working;
         var previous = requested?.Id ?? (_network.SelectedItem as NetworkChoice)?.Id;
         var previousAddress = requested?.Address ?? (_network.SelectedItem as NetworkChoice)?.Address;
         var choices = NetworkService.GetChoices();
@@ -257,25 +288,26 @@ internal sealed class MainForm : Form
                 ?? choices.FirstOrDefault(choice => choice.Description.Contains("Ethernet", StringComparison.OrdinalIgnoreCase))
                 ?? choices[0];
             _network.SelectedItem = preferred;
+            _networkActivity.State = ActivityState.Complete;
         }
         else
         {
-            _networkHint.Text = "No active IPv4 network adapters were found.";
+            _serverStatus.Text = "No active IPv4 network adapters were found.";
+            _serverStatus.ForeColor = UiTheme.Amber;
+            _networkActivity.State = ActivityState.Error;
             _onboard.Enabled = false;
         }
     }
 
     private async Task CheckNdiAsync()
     {
-        await RunBusyAsync(async token =>
+        await RunBusyAsync(_ndiActivity, async token =>
         {
             _ndiStatus.Text = "Checking the installed and current official NDI Tools versions…";
             _ndi = await _ndiTools.CheckAsync(token);
             _ndiStatus.Text = _ndi.Message;
             _ndiStatus.ForeColor = _ndi.UpdateRequired ? UiTheme.Amber : UiTheme.Green;
-            _ndiAction.Text = _ndi.UpdateRequired
-                ? _ndi.Installed ? "Update NDI Tools" : "Install NDI Tools"
-                : "Check again";
+            UpdateNdiActionHint();
         });
         UpdateReadyState();
     }
@@ -289,19 +321,15 @@ internal sealed class MainForm : Form
             MessageBoxButtons.OKCancel,
             MessageBoxIcon.Information);
         if (result != DialogResult.OK) return;
-        await RunBusyAsync(async token =>
+        await RunBusyAsync(_ndiActivity, async token =>
         {
-            _progress.Visible = true;
-            _progress.Value = 0;
             _ndiStatus.ForeColor = UiTheme.Muted;
             _ndiStatus.Text = "Downloading the official NDI Tools installer…";
-            var progress = new Progress<int>(value => _progress.Value = Math.Clamp(value, 0, 100));
-            await _ndiTools.DownloadAndInstallAsync(progress, token);
-            _progress.Visible = false;
+            await _ndiTools.DownloadAndInstallAsync(null, token);
             _ndi = await _ndiTools.CheckAsync(token);
             _ndiStatus.Text = _ndi.Message;
             _ndiStatus.ForeColor = _ndi.UpdateRequired ? UiTheme.Amber : UiTheme.Green;
-            _ndiAction.Text = _ndi.UpdateRequired ? "Update NDI Tools" : "Check again";
+            UpdateNdiActionHint();
         });
         UpdateReadyState();
     }
@@ -309,22 +337,23 @@ internal sealed class MainForm : Form
     private async Task ScanAsync()
     {
         if (_network.SelectedItem is not NetworkChoice network) return;
-        await RunBusyAsync(async token =>
+        await RunBusyAsync(_jobActivity, async token =>
         {
             _servers.Items.Clear();
             _serverStatus.ForeColor = UiTheme.Muted;
             _serverStatus.Text = $"Searching {ScanDescription(network)} for Kiloview Job Configurator…";
-            _progress.Visible = true;
-            _progress.Value = 0;
-            var progress = new Progress<int>(value => _progress.Value = Math.Clamp(value, 0, 100));
-            var servers = await JobConfiguratorDiscovery.FindAsync(network, progress, token);
+            var servers = await JobConfiguratorDiscovery.FindAsync(network, null, token);
             foreach (var server in servers) _servers.Items.Add(server);
             if (_servers.Items.Count == 1) _servers.SelectedIndex = 0;
-            _serverStatus.Text = servers.Count == 0
-                ? "No active job was found. Check that the main application is running with LAN access enabled."
-                : $"Found {servers.Count} active job{(servers.Count == 1 ? "" : "s")}.";
+            var compatible = servers.Count(server => server.SupportsRegistration);
+            _serverStatus.Text = servers.Count switch
+            {
+                0 => "No active job was found. Check LAN access, the selected adapter, and the firewall profile.",
+                _ when compatible == 0 => "Found Job Configurator, but it must be updated before this PC can register.",
+                _ when compatible < servers.Count => $"Found {servers.Count} active jobs; update entries marked “update required” before use.",
+                _ => $"Found {servers.Count} active job{(servers.Count == 1 ? "" : "s")}."
+            };
             _serverStatus.ForeColor = servers.Count == 0 ? UiTheme.Amber : UiTheme.Green;
-            _progress.Visible = false;
         });
         UpdateReadyState();
     }
@@ -336,11 +365,29 @@ internal sealed class MainForm : Form
             || _ndi is null
             || _ndi.UpdateRequired)
             return;
-        await RunBusyAsync(async token =>
+        await RunBusyAsync(_jobActivity, async token =>
         {
             _serverStatus.ForeColor = UiTheme.Muted;
             _serverStatus.Text = "Applying the preferred interface, NDI group, and discovery server…";
             await NdiConfigurationService.ApplyAsync(network, server, token);
+            if (!server.SupportsRegistration)
+            {
+                _serverStatus.ForeColor = UiTheme.Amber;
+                _serverStatus.Text =
+                    $"NDI settings were applied for {server.JobName}. Update Job Configurator to register this PC.";
+                OpenJobConfiguratorKeepingFocus(server.BaseUri);
+                MessageBox.Show(
+                    this,
+                    $"Local NDI settings were applied for {server.JobName}.\n\n"
+                    + $"Preferred interface: {network.Address}\n"
+                    + $"NDI discovery server: {server.NdiDiscoveryServerIp}\n"
+                    + "NDI Discovery: Use Access Manager Settings\n\n"
+                    + "Update Job Configurator before registering this PC.",
+                    "NDI settings applied",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
             var request = new RegistrationRequest(
                 ConsentStore.EndpointId(),
                 Environment.MachineName,
@@ -355,8 +402,7 @@ internal sealed class MainForm : Form
             await JobConfiguratorDiscovery.RegisterAsync(network, server, request, token);
             _serverStatus.ForeColor = UiTheme.Green;
             _serverStatus.Text = $"{Environment.MachineName} is onboarded to {server.JobName}. Restart running NDI applications so they load the new settings.";
-            if (_openJob.Checked)
-                Process.Start(new ProcessStartInfo(server.BaseUri.ToString()) { UseShellExecute = true });
+            OpenJobConfiguratorKeepingFocus(server.BaseUri);
             MessageBox.Show(
                 this,
                 $"This PC is now onboarded to {server.JobName}.\n\nPreferred interface: {network.Address}\nNDI discovery server: {server.NdiDiscoveryServerIp}\nNDI group: {server.JobName}\n\nRestart any running NDI applications.",
@@ -366,23 +412,64 @@ internal sealed class MainForm : Form
         });
     }
 
-    private async Task RunBusyAsync(Func<CancellationToken, Task> operation)
+    private void OpenJobConfiguratorKeepingFocus(Uri address)
+    {
+        Process.Start(new ProcessStartInfo(address.ToString()) { UseShellExecute = true });
+
+        var attempts = 0;
+        var focusTimer = new System.Windows.Forms.Timer { Interval = 250 };
+        focusTimer.Tick += (_, _) =>
+        {
+            if (IsDisposed)
+            {
+                focusTimer.Dispose();
+                return;
+            }
+
+            BringToFront();
+            Activate();
+            if (++attempts < 4)
+                return;
+
+            focusTimer.Stop();
+            focusTimer.Dispose();
+        };
+        BringToFront();
+        Activate();
+        focusTimer.Start();
+    }
+
+    private void UpdateNdiActionHint()
+    {
+        var action = _ndi?.UpdateRequired == true
+            ? _ndi.Installed ? "Update NDI Tools" : "Install NDI Tools"
+            : "Check NDI Tools again";
+        _ndiAction.AccessibleName = action;
+        _tooltips.SetToolTip(_ndiAction, action);
+    }
+
+    private async Task RunBusyAsync(
+        ActivityIndicator activity,
+        Func<CancellationToken, Task> operation)
     {
         _operation?.Cancel();
         _operation?.Dispose();
         _operation = new CancellationTokenSource();
+        activity.State = ActivityState.Working;
         SetBusy(true);
         try
         {
             await operation(_operation.Token);
+            activity.State = ActivityState.Complete;
         }
         catch (OperationCanceledException) when (_operation.IsCancellationRequested)
         {
+            activity.State = ActivityState.Idle;
             _serverStatus.Text = "Operation cancelled.";
         }
         catch (Exception ex)
         {
-            _progress.Visible = false;
+            activity.State = ActivityState.Error;
             _serverStatus.ForeColor = UiTheme.Red;
             _serverStatus.Text = ex.Message;
             MessageBox.Show(this, ex.Message, "Kiloview PC Onboarding", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -395,6 +482,10 @@ internal sealed class MainForm : Form
 
     private void SetBusy(bool busy)
     {
+        var selectedServer = _servers.SelectedItem as JobConfiguratorInstance;
+        _onboard.Text = selectedServer is { SupportsRegistration: false }
+            ? "Apply NDI settings"
+            : "Onboard this PC";
         UseWaitCursor = busy;
         _network.Enabled = !busy;
         _refreshNetwork.Enabled = !busy;
@@ -403,7 +494,7 @@ internal sealed class MainForm : Form
         _servers.Enabled = !busy;
         _onboard.Enabled = !busy
             && _network.SelectedItem is NetworkChoice
-            && _servers.SelectedItem is JobConfiguratorInstance
+            && selectedServer is not null
             && _ndi?.UpdateRequired == false;
     }
 

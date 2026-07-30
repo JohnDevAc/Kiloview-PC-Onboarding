@@ -6,11 +6,12 @@ internal sealed class EulaForm : Form
 {
     public EulaForm(Icon icon)
     {
+        UiTheme.ConfigureForm(this);
         Icon = icon;
         Text = "Kiloview PC Onboarding — End User Licence Agreement";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(780, 640);
-        Size = new Size(900, 720);
+        MinimumSize = new Size(560, 380);
+        Size = new Size(700, 460);
         BackColor = UiTheme.Background;
         ForeColor = UiTheme.Text;
 
@@ -20,7 +21,8 @@ internal sealed class EulaForm : Form
         var header = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 82,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             FlowDirection = FlowDirection.TopDown,
             Padding = new Padding(22, 14, 22, 8),
             BackColor = UiTheme.Panel
@@ -58,17 +60,22 @@ internal sealed class EulaForm : Form
         var cancel = UiTheme.Button("Cancel");
         cancel.Click += (_, _) => Close();
 
-        var actions = new FlowLayoutPanel
+        var actions = new TableLayoutPanel
         {
             Dock = DockStyle.Bottom,
-            Height = 76,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(22, 14, 22, 12),
-            FlowDirection = FlowDirection.RightToLeft,
+            ColumnCount = 3,
             BackColor = UiTheme.Panel
         };
-        actions.Controls.Add(continueButton);
-        actions.Controls.Add(cancel);
-        actions.Controls.Add(accept);
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        accept.Anchor = AnchorStyles.Left;
+        actions.Controls.Add(accept, 0, 0);
+        actions.Controls.Add(cancel, 1, 0);
+        actions.Controls.Add(continueButton, 2, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(22) };
         body.Controls.Add(licence);

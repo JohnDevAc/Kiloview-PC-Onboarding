@@ -15,11 +15,7 @@ internal static class Program
             if (agreement.ShowDialog() != DialogResult.OK) return;
             ConsentStore.Record("1.0");
         }
-        using var networkSelection = new NetworkSelectionForm(icon);
-        if (networkSelection.ShowDialog() != DialogResult.OK
-            || networkSelection.SelectedNetwork is null)
-            return;
-        Application.Run(new MainForm(icon, networkSelection.SelectedNetwork));
+        Application.Run(new MainForm(icon));
     }
 
     private static Icon LoadIcon()

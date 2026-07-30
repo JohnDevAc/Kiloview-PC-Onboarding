@@ -40,8 +40,14 @@ internal static class NetworkService
         var localAddress = IPAddress.Parse(choice.Address);
         var handler = new SocketsHttpHandler
         {
+            // Discovery must stay on the selected production interface. A configured
+            // system proxy can otherwise receive requests for private IPv4 addresses.
+            UseProxy = false,
+            UseCookies = false,
+            AllowAutoRedirect = false,
             ConnectTimeout = TimeSpan.FromMilliseconds(700),
             PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(30),
             MaxConnectionsPerServer = 2,
             ConnectCallback = async (context, cancellationToken) =>
             {

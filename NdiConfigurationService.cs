@@ -7,33 +7,54 @@ namespace KiloviewPcOnboarding;
 internal static class NdiConfigurationService
 {
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
-    private static readonly string ConfigPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "NDI",
-        "ndi-config.v1.json");
+    private static string ConfigPath => Environment.GetEnvironmentVariable(
+        "KILOVIEW_NDI_CONFIG_PATH") is { Length: > 0 } overridePath
+            ? Path.GetFullPath(overridePath)
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NDI",
+                "ndi-config.v1.json");
+    private static string DiscoveryUiConfigPath => Environment.GetEnvironmentVariable(
+        "KILOVIEW_NDI_DISCOVERY_UI_CONFIG_PATH") is { Length: > 0 } overridePath
+            ? Path.GetFullPath(overridePath)
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "NDI",
+                "Application.NDI.DiscoveryService.UI",
+                "discovery_service_settings.json");
 
     public static async Task ApplyAsync(
         NetworkChoice network,
         JobConfiguratorInstance server,
         CancellationToken ct)
     {
-        if (IsAccessManagerRunning())
+        if (IsAccessManagerRunning() || IsDiscoveryRunning())
             throw new InvalidOperationException(
-                "Close NDI Access Manager before onboarding. It can overwrite externally applied settings when it exits.");
+                "Close NDI Access Manager and NDI Discovery before applying settings. "
+                + "Either application can overwrite externally applied settings when it exits.");
 
+        await ApplyConfigurationFilesAsync(network, server, ct);
+    }
+
+    internal static async Task ApplyConfigurationFilesAsync(
+        NetworkChoice network,
+        JobConfiguratorInstance server,
+        CancellationToken ct)
+    {
+        var configPath = ConfigPath;
         JsonObject root;
-        if (File.Exists(ConfigPath))
+        if (File.Exists(configPath))
         {
             try
             {
-                await using var input = File.OpenRead(ConfigPath);
+                await using var input = File.OpenRead(configPath);
                 root = await JsonNode.ParseAsync(input, cancellationToken: ct) as JsonObject
                     ?? throw new JsonException("The root value is not an object.");
             }
             catch (JsonException ex)
             {
                 throw new InvalidOperationException(
-                    $"The NDI configuration at '{ConfigPath}' is invalid. Open NDI Access Manager once to repair it.",
+                    $"The NDI configuration at '{configPath}' is invalid. Open NDI Access Manager once to repair it.",
                     ex);
             }
         }
@@ -47,23 +68,16 @@ internal static class NdiConfigurationService
         groups["recv"] = AddValue(Text(groups, "recv"), server.JobName);
         Object(ndi, "networks")["discovery"] = server.NdiDiscoveryServerIp;
 
-        var directory = Path.GetDirectoryName(ConfigPath)!;
-        Directory.CreateDirectory(directory);
-        if (File.Exists(ConfigPath))
-            File.Copy(ConfigPath, ConfigPath + ".kiloview-pc-onboarding-backup", true);
-        var temporary = Path.Combine(directory, $".ndi-config.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp");
-        try
-        {
-            await File.WriteAllTextAsync(temporary, root.ToJsonString(Indented) + Environment.NewLine, ct);
-            await using (var verify = File.OpenRead(temporary))
-                _ = await JsonNode.ParseAsync(verify, cancellationToken: ct)
-                    ?? throw new InvalidOperationException("The generated NDI configuration could not be verified.");
-            File.Move(temporary, ConfigPath, true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
-        }
+        await WriteConfigurationAsync(configPath, root, ct);
+
+        var discoveryPath = DiscoveryUiConfigPath;
+        var discoveryRoot = await ReadConfigurationAsync(discoveryPath, "NDI Discovery", ct);
+        discoveryRoot["isNotFirstRun"] = true;
+        var discovery = Object(discoveryRoot, "discoverySettingsModel");
+        discovery["ipaddressstring"] = server.NdiDiscoveryServerIp;
+        discovery["useaccessmanagersettings"] = true;
+        discovery["uselocalhost"] = false;
+        await WriteConfigurationAsync(discoveryPath, discoveryRoot, ct);
 
         await VerifyAsync(network.Address, server.JobName, server.NdiDiscoveryServerIp, ct);
     }
@@ -81,14 +95,93 @@ internal static class NdiConfigurationService
             && Contains(Text(groups, "recv"), group)
             && Contains(actualDiscovery, discoveryServer);
         if (!valid) throw new InvalidOperationException("NDI Access Manager did not retain the onboarding settings.");
+
+        await using var discoveryInput = File.OpenRead(DiscoveryUiConfigPath);
+        var discoveryRoot = await JsonNode.ParseAsync(discoveryInput, cancellationToken: ct) as JsonObject;
+        var discovery = discoveryRoot?["discoverySettingsModel"] as JsonObject;
+        if (!Bool(discovery, "useaccessmanagersettings")
+            || !string.Equals(
+                Text(discovery, "ipaddressstring"),
+                discoveryServer,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "NDI Discovery did not retain the Access Manager discovery-server setting.");
     }
 
-    private static bool IsAccessManagerRunning() => new[] { "Access Manager", "NDI Access Manager" }.Any(name =>
+    private static bool IsAccessManagerRunning() => IsAnyProcessRunning(
+        "Application.NdiGroupEditor",
+        "Access Manager",
+        "NDI Access Manager");
+
+    private static bool IsDiscoveryRunning() => IsAnyProcessRunning(
+        "Application.NDI.DiscoveryService.UI",
+        "NDI Discovery Service");
+
+    private static bool IsAnyProcessRunning(params string[] names) => names.Any(name =>
     {
-        var processes = Process.GetProcessesByName(name);
-        foreach (var process in processes) process.Dispose();
-        return processes.Length > 0;
+        try
+        {
+            var processes = Process.GetProcessesByName(name);
+            foreach (var process in processes) process.Dispose();
+            return processes.Length > 0;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException
+            or PlatformNotSupportedException
+            or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
     });
+
+    private static async Task<JsonObject> ReadConfigurationAsync(
+        string path,
+        string product,
+        CancellationToken ct)
+    {
+        if (!File.Exists(path)) return new JsonObject();
+        try
+        {
+            await using var input = File.OpenRead(path);
+            return await JsonNode.ParseAsync(input, cancellationToken: ct) as JsonObject
+                ?? throw new JsonException("The root value is not an object.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"The {product} configuration at '{path}' is invalid. Open {product} once to repair it.",
+                ex);
+        }
+    }
+
+    private static async Task WriteConfigurationAsync(
+        string path,
+        JsonObject root,
+        CancellationToken ct)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new InvalidOperationException("The NDI configuration directory could not be resolved.");
+        Directory.CreateDirectory(directory);
+        if (File.Exists(path))
+            File.Copy(path, path + ".kiloview-pc-onboarding-backup", true);
+        var temporary = Path.Combine(
+            directory,
+            $".{Path.GetFileName(path)}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(
+                temporary,
+                root.ToJsonString(Indented) + Environment.NewLine,
+                ct);
+            await using (var verify = File.OpenRead(temporary))
+                _ = await JsonNode.ParseAsync(verify, cancellationToken: ct)
+                    ?? throw new InvalidOperationException("The generated NDI configuration could not be verified.");
+            File.Move(temporary, path, true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
 
     private static JsonObject Object(JsonObject parent, string name)
     {
@@ -112,4 +205,9 @@ internal static class NdiConfigurationService
 
     private static string? Text(JsonObject? parent, string name) =>
         parent?[name] is JsonValue value && value.TryGetValue<string>(out var result) ? result : null;
+
+    private static bool Bool(JsonObject? parent, string name) =>
+        parent?[name] is JsonValue value
+        && (value.TryGetValue<bool>(out var result) && result
+            || value.TryGetValue<string>(out var text) && bool.TryParse(text, out result) && result);
 }

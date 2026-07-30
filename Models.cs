@@ -28,10 +28,14 @@ internal sealed record JobConfiguratorInstance(
     string Version,
     string Channel,
     string JobName,
-    string NdiDiscoveryServerIp)
+    string NdiDiscoveryServerIp,
+    bool SupportsRegistration)
 {
-    public override string ToString() =>
-        $"{JobName} — {Address} · v{Version} {Channel}";
+    public override string ToString()
+    {
+        var compatibility = SupportsRegistration ? "" : " · update required";
+        return $"{JobName} — {Address} · v{Version} {Channel}{compatibility}";
+    }
 }
 
 internal sealed record RegistrationRequest(
