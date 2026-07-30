@@ -2,7 +2,8 @@
   <PropertyGroup>
     <Product>Kiloview PC Onboarding Utility</Product>
     <Company>John Lightfoot</Company>
-    <Version>0.1.0-dev.1</Version>
+    <Version>0.1.0-dev.2</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ReleaseChannel>Development</ReleaseChannel>
     <Copyright>Copyright © 2026 John Lightfoot. All rights reserved.</Copyright>
   </PropertyGroup>

@@ -3,7 +3,7 @@
 ## Project
 
 - Product: Kiloview PC Onboarding Utility
-- Version: `0.1.0-dev.1`
+- Version: `0.1.0-dev.2`
 - Intended default branch: `main`
 - Owner/copyright: John Lightfoot
 - Licence: proprietary, free for unmodified non-commercial use
@@ -35,6 +35,12 @@ compatibility endpoints, persistent remote-PC records, and monitor cards.
 - Uses per-section spinner/tick activity indicators instead of a progress bar.
 - Always opens the Job Configurator page after onboarding and keeps the utility
   in the foreground.
+- Creates or updates the single branded `Kiloview PC Onboarding - ICMPv4 Echo`
+  inbound rule after successful registration. It allows ICMPv4 Echo Request
+  only on the Private profile and scopes the remote source to the Configurator
+  IP, falling back to the selected subnet but never `Any`.
+- Surfaces firewall failures as onboarding warnings; it does not modify
+  unrelated rules or install a service/background heartbeat.
 - Registers the endpoint with the selected Job Configurator job.
 
 ## Validation
@@ -51,8 +57,8 @@ Use `scripts\Publish.ps1` for self-contained packaging or add
 
 Current local packages:
 
-- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.290 MB,
-  SHA-256 `FBF0DF19B2F1E0FC21BCF473FC850535F8F03D1A1655E900CC491F0629B5AAAD`
+- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.294 MB,
+  SHA-256 `F93FAF7E0C85AF2C53CA15154A16765B3D029A5638F1294FF55E65911B8D6C68`
 - `artifacts/Kiloview-PC-Onboarding-win-x64-framework-dependent.zip` —
-  0.412 MB, SHA-256
-  `EFC88DFEF9432A889BD6D579031E6E545C1F1DB493A732CD69F6D266BAFF6E7C`
+  0.414 MB, SHA-256
+  `5EF725AB87B594A582227CD166C1C450FF45C718F04553D976B64D4994355536`

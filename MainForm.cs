@@ -400,15 +400,26 @@ internal sealed class MainForm : Form
                 "1.0");
             _serverStatus.Text = "Registering this PC with the selected job…";
             await JobConfiguratorDiscovery.RegisterAsync(network, server, request, token);
-            _serverStatus.ForeColor = UiTheme.Green;
-            _serverStatus.Text = $"{Environment.MachineName} is onboarded to {server.JobName}. Restart running NDI applications so they load the new settings.";
+            var firewall = FirewallService.EnsurePingRule(network, server);
+            _serverStatus.ForeColor = firewall.Applied ? UiTheme.Green : UiTheme.Amber;
+            _serverStatus.Text = firewall.Applied
+                ? $"{Environment.MachineName} is onboarded to {server.JobName} and available for ping monitoring."
+                : $"{Environment.MachineName} is onboarded, but the Windows Firewall ping rule needs attention.";
             OpenJobConfiguratorKeepingFocus(server.BaseUri);
+            var firewallMessage = firewall.Applied
+                ? $"Ping monitoring: Private profile, source {firewall.RemoteScope}"
+                : $"WARNING: {firewall.Warning}";
             MessageBox.Show(
                 this,
-                $"This PC is now onboarded to {server.JobName}.\n\nPreferred interface: {network.Address}\nNDI discovery server: {server.NdiDiscoveryServerIp}\nNDI group: {server.JobName}\n\nRestart any running NDI applications.",
+                $"This PC is now onboarded to {server.JobName}.\n\n"
+                + $"Preferred interface: {network.Address}\n"
+                + $"NDI discovery server: {server.NdiDiscoveryServerIp}\n"
+                + $"NDI group: {server.JobName}\n"
+                + $"{firewallMessage}\n\n"
+                + "Restart any running NDI applications.",
                 "Onboarding complete",
                 MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+                firewall.Applied ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         });
     }
 

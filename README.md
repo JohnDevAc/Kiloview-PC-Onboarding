@@ -21,16 +21,28 @@ HTTP API.
    and writes the preferred NDI interface, job send/receive group, and discovery
    server, then configures NDI Discovery to use Access Manager settings; and
 7. registers the Windows PC with the selected job so it appears in the main
-   device monitor.
+   device monitor; and
+8. creates or updates one branded Windows Firewall inbound ICMPv4 Echo Request
+   rule on the Private profile so Job Configurator can check availability after
+   the utility exits.
 
 Each main-screen section uses a compact activity spinner while it is working
 and a green tick when it completes. The Job Configurator page always opens
 after onboarding, while the utility remains in the foreground.
 
+The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
+onboarding updates that rule instead of adding duplicates and does not alter
+unrelated firewall rules. Its remote scope is the selected Job Configurator IP
+when available; otherwise it is limited to the selected adapter's IPv4 subnet.
+It is never opened to `Any`. The utility requests administrator elevation at
+startup and shows a warning if Windows rejects the rule. No service, background
+heartbeat, or resident process is installed.
+
 ## Requirements
 
 - Windows 10 or 11, x64
-- administrator approval (required by NDI Tools and the shared NDI configuration)
+- administrator approval (required by NDI Tools, the shared NDI configuration,
+  and the scoped Windows Firewall availability rule)
 - an active IPv4 production network
 - a current Kiloview Job Configurator running with LAN access and its private or
   domain Windows Firewall rule enabled
