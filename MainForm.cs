@@ -16,12 +16,11 @@ internal sealed class MainForm : Form
     private readonly Button _refreshNetwork = UiTheme.RefreshButton("Refresh network adapters");
     private readonly Button _ndiAction = UiTheme.RefreshButton("Check NDI Tools");
     private readonly Button _scan = UiTheme.RefreshButton("Rescan for Job Configurator");
-    private readonly Button _onboard = UiTheme.Button("Onboard this PC", true);
-    private readonly Label _completionMessage = UiTheme.Label("", 11, true);
+    private readonly CompletionActionButton _onboard = UiTheme.CompletionButton("Onboard this PC");
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
     private bool _onboardingComplete;
-    private string _completionButtonText = "Onboarding complete";
+    private string _completionButtonText = "SUCCESS";
 
     public MainForm(Icon icon)
     {
@@ -103,8 +102,6 @@ internal sealed class MainForm : Form
         _servers.Font = new Font("Segoe UI", 10);
         _servers.IntegralHeight = false;
         _serverStatus.ForeColor = UiTheme.Muted;
-        _completionMessage.ForeColor = UiTheme.Green;
-        _completionMessage.Visible = false;
 
         _onboard.Width = 190;
         _onboard.Enabled = false;
@@ -173,8 +170,6 @@ internal sealed class MainForm : Form
         var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2 };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _completionMessage.Anchor = AnchorStyles.Left;
-        actions.Controls.Add(_completionMessage, 0, 0);
         actions.Controls.Add(_onboard, 1, 0);
         _onboard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         container.Controls.Add(actions, 0, 2);
@@ -400,8 +395,6 @@ internal sealed class MainForm : Form
             {
                 ShowCompletion(
                     "SETTINGS APPLIED",
-                    UiTheme.Amber,
-                    "Settings applied",
                     [
                         $"Job: {server.JobName}",
                         $"Preferred interface: {network.Address}",
@@ -431,8 +424,6 @@ internal sealed class MainForm : Form
                 : $"WARNING: {firewall.Warning}";
             ShowCompletion(
                 "SUCCESS",
-                UiTheme.Green,
-                "Onboarding complete",
                 [
                     $"PC: {Environment.MachineName}",
                     $"Job: {server.JobName}",
@@ -447,16 +438,12 @@ internal sealed class MainForm : Form
     }
 
     private void ShowCompletion(
-        string message,
-        Color color,
-        string buttonText,
+        string resultText,
         IEnumerable<string> details)
     {
         _onboardingComplete = true;
-        _completionButtonText = buttonText;
-        _completionMessage.Text = message;
-        _completionMessage.ForeColor = color;
-        _completionMessage.Visible = true;
+        _completionButtonText = resultText;
+        _onboard.CompletionState = true;
 
         _servers.BeginUpdate();
         _servers.Items.Clear();
@@ -465,7 +452,7 @@ internal sealed class MainForm : Form
         _servers.EndUpdate();
         _serverStatus.Text = "";
         _serverStatus.Visible = false;
-        _onboard.Text = buttonText;
+        _onboard.Text = resultText;
         _onboard.BackColor = UiTheme.Border;
         _onboard.ForeColor = UiTheme.Muted;
         _onboard.FlatAppearance.BorderColor = UiTheme.Border;

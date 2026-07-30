@@ -37,9 +37,9 @@ utility remains in the foreground.
 Completion does not use a popup. Step 3 is replaced with a line-by-line summary
 of the PC, job, preferred interface, NDI discovery server, NDI group, firewall
 monitoring scope, and restart reminder. A compact `SUCCESS` label appears
-inside the lower-left of step 3, and the onboarding button remains disabled for
-the rest of that session. The elevated application also reclaims foreground
-focus when its first window is shown.
+in Kiloview green inside the disabled grey lower-right action button, replacing
+its previous text for the rest of that session. The elevated application also
+reclaims foreground focus when its first window is shown.
 
 When discovery finds this PC in one or more local Job Configurators, those jobs
 are marked `already onboarded` in step 3 and the status line names the matching

@@ -42,8 +42,8 @@ compatibility endpoints, persistent remote-PC records, and monitor cards.
   in the foreground.
 - Reclaims foreground focus when the elevated UI first appears.
 - Replaces completion popups with a line-by-line result in step 3 and a compact
-  `SUCCESS` label inside its lower-left; the onboarding button stays disabled
-  after completion.
+  green `SUCCESS` text in the disabled grey lower-right action button after
+  completion.
 - Creates or updates the single branded `Kiloview PC Onboarding - ICMPv4 Echo`
   inbound rule after successful registration. It allows ICMPv4 Echo Request
   only on the Private profile and scopes the remote source to the Configurator
@@ -67,7 +67,7 @@ Use `scripts\Publish.ps1` for self-contained packaging or add
 Current local packages:
 
 - `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.298 MB,
-  SHA-256 `9B878E0DC3C5149A6A8BD31849D518389914351E50526DCE60007DC773C2FA55`
+  SHA-256 `ADF9BC76E4D8806946FFD75B9879D6B95333C406E50C914CE40E1D30FCEA8A88`
 - `artifacts/Kiloview-PC-Onboarding-win-x64-framework-dependent.zip` —
   0.419 MB, SHA-256
-  `E945DFD9A84114839F6BA1A44646BE5C38744ED057627B26128D2D6A80B6C535`
+  `A48BECA78A783BB6F5367CE0EC09D8EC8C230ABA34DD5EDCE3F56AB59814417C`

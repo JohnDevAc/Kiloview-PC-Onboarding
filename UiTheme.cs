@@ -32,6 +32,19 @@ internal static class UiTheme
         Cursor = Cursors.Hand
     }.Also(button => button.FlatAppearance.BorderColor = primary ? Green : Border);
 
+    public static CompletionActionButton CompletionButton(string text) => new()
+    {
+        Text = text,
+        AutoSize = false,
+        Height = 38,
+        Width = 150,
+        FlatStyle = FlatStyle.Flat,
+        BackColor = Green,
+        ForeColor = Background,
+        Font = new Font("Segoe UI", 9, FontStyle.Bold),
+        Cursor = Cursors.Hand
+    };
+
     public static Button RefreshButton(string accessibleName) => new RefreshIconButton()
     {
         AccessibleName = accessibleName,
@@ -166,6 +179,44 @@ internal static class UiTheme
     {
         update(value);
         return value;
+    }
+}
+
+internal sealed class CompletionActionButton : Button
+{
+    private bool _completionState;
+
+    public bool CompletionState
+    {
+        get => _completionState;
+        set
+        {
+            _completionState = value;
+            Invalidate();
+        }
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        if (!CompletionState)
+        {
+            base.OnPaint(e);
+            return;
+        }
+
+        e.Graphics.Clear(UiTheme.Border);
+        using var border = new Pen(UiTheme.Border);
+        e.Graphics.DrawRectangle(border, 0, 0, Width - 1, Height - 1);
+        TextRenderer.DrawText(
+            e.Graphics,
+            Text,
+            Font,
+            ClientRectangle,
+            UiTheme.Green,
+            TextFormatFlags.HorizontalCenter
+            | TextFormatFlags.VerticalCenter
+            | TextFormatFlags.SingleLine
+            | TextFormatFlags.NoPadding);
     }
 }
 
