@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Kiloview PC Onboarding</AssemblyName>
+    <RootNamespace>KiloviewPcOnboarding</RootNamespace>
+    <AssemblyTitle>Kiloview PC Onboarding Utility</AssemblyTitle>
+    <Description>Onboard a Windows NDI endpoint into Kiloview Job Configurator.</Description>
+    <ApplicationIcon>assets\KiloviewSetup.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="LICENSE.md" LogicalName="KiloviewPcOnboarding.License.md" />
+    <EmbeddedResource Include="assets\KiloviewSetup.ico" LogicalName="KiloviewPcOnboarding.BrandIcon.ico" />
+  </ItemGroup>
+</Project>

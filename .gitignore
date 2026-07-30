@@ -1,0 +1,7 @@
+bin/
+obj/
+.dotnet/
+.nuget-packages/
+artifacts/
+*.user
+*.log
