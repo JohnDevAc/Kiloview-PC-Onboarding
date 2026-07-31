@@ -13,7 +13,6 @@ internal sealed record FirewallRuleResult(
 internal static class FirewallService
 {
     internal const string RuleName = "Kiloview PC Onboarding - ICMPv4 Echo";
-    private const string ProductGroup = "Kiloview PC Onboarding";
     private const int IcmpV4Protocol = 1;
     private const int InboundDirection = 1;
     private const int AllowAction = 1;
@@ -45,15 +44,13 @@ internal static class FirewallService
             policy = Activator.CreateInstance(policyType)
                 ?? throw new InvalidOperationException("Windows Firewall could not be opened.");
             rules = ((dynamic)policy).Rules;
-            rule = FindRule(rules) ?? Activator.CreateInstance(ruleType)
+            rule = Activator.CreateInstance(ruleType)
                 ?? throw new InvalidOperationException("The Windows Firewall rule could not be created.");
-            var isNew = string.IsNullOrWhiteSpace(((dynamic)rule).Name as string);
 
             dynamic configuredRule = rule;
             configuredRule.Name = RuleName;
             configuredRule.Description =
                 "Allows the selected Kiloview Job Configurator to check whether this onboarded PC is online.";
-            configuredRule.Grouping = ProductGroup;
             configuredRule.Protocol = IcmpV4Protocol;
             configuredRule.IcmpTypesAndCodes = "8:*";
             configuredRule.Direction = InboundDirection;
@@ -64,13 +61,24 @@ internal static class FirewallService
             configuredRule.EdgeTraversal = false;
             configuredRule.Enabled = true;
 
-            if (isNew)
-                ((dynamic)rules).Add(configuredRule);
+            // Add replaces an existing rule with the same identifier. Building a
+            // detached rule first avoids the Firewall API validating and
+            // committing every individual property change on an existing rule.
+            ((dynamic)rules).Add(configuredRule);
+            ReleaseComObject(rule);
+            rule = null;
+
+            if (!RuleMatches(rules, network.Address, remoteScope))
+                throw new InvalidOperationException(
+                    "Windows did not retain the required Private-profile ICMPv4 rule settings.");
 
             return new(true, remoteScope, null);
         }
         catch (Exception ex)
         {
+            if (RuleMatches(rules, network.Address, remoteScope))
+                return new(true, remoteScope, null);
+
             return new(
                 false,
                 remoteScope,
@@ -112,16 +120,90 @@ internal static class FirewallService
         return $"{FromUInt(addressValue & mask)}/{network.PrefixLength}";
     }
 
-    private static object? FindRule(object rules)
+    private static bool RuleMatches(
+        object? rules,
+        string localAddress,
+        string remoteScope)
     {
+        if (rules is null)
+            return false;
+
+        object? existing = null;
         try
         {
-            return ((dynamic)rules).Item(RuleName);
+            existing = ((dynamic)rules).Item(RuleName);
+            dynamic configuredRule = existing;
+            return configuredRule.Enabled
+                && (int)configuredRule.Protocol == IcmpV4Protocol
+                && (int)configuredRule.Direction == InboundDirection
+                && (int)configuredRule.Action == AllowAction
+                && ((int)configuredRule.Profiles & PrivateProfile) == PrivateProfile
+                && AddressListContains((string)configuredRule.LocalAddresses, localAddress)
+                && AddressListContains((string)configuredRule.RemoteAddresses, remoteScope)
+                && string.Equals(
+                    (string)configuredRule.IcmpTypesAndCodes,
+                    "8:*",
+                    StringComparison.OrdinalIgnoreCase);
         }
-        catch (COMException)
+        catch
         {
-            return null;
+            return false;
         }
+        finally
+        {
+            ReleaseComObject(existing);
+        }
+    }
+
+    private static bool AddressListContains(string? addresses, string expected) =>
+        addresses?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(candidate => ScopesEquivalent(candidate, expected)) == true;
+
+    private static bool ScopesEquivalent(string first, string second)
+    {
+        if (string.Equals(first, second, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return TryParseScope(first, out var firstNetwork, out var firstPrefix)
+            && TryParseScope(second, out var secondNetwork, out var secondPrefix)
+            && firstNetwork == secondNetwork
+            && firstPrefix == secondPrefix;
+    }
+
+    private static bool TryParseScope(string value, out uint network, out int prefixLength)
+    {
+        network = 0;
+        prefixLength = 0;
+        var components = value.Split('/', 2, StringSplitOptions.TrimEntries);
+        if (!IPAddress.TryParse(components[0], out var address)
+            || address.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+
+        prefixLength = 32;
+        if (components.Length == 2)
+        {
+            if (!int.TryParse(components[1], out prefixLength))
+            {
+                if (!IPAddress.TryParse(components[1], out var maskAddress)
+                    || maskAddress.AddressFamily != AddressFamily.InterNetwork)
+                    return false;
+                var maskValue = ToUInt(maskAddress);
+                prefixLength = System.Numerics.BitOperations.PopCount(maskValue);
+                var expectedMask = prefixLength == 0
+                    ? 0u
+                    : uint.MaxValue << (32 - prefixLength);
+                if (maskValue != expectedMask)
+                    return false;
+            }
+
+            if (prefixLength is < 0 or > 32)
+                return false;
+        }
+
+        var mask = prefixLength == 0
+            ? 0u
+            : uint.MaxValue << (32 - prefixLength);
+        network = ToUInt(address) & mask;
+        return true;
     }
 
     private static bool IsAdministrator()

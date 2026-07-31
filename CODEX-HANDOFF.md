@@ -3,7 +3,7 @@
 ## Project
 
 - Product: Kiloview PC Onboarding Utility
-- Version: `0.1.0-dev.5`
+- Version: `0.1.0-dev.7`
 - Intended default branch: `main`
 - Owner/copyright: John Lightfoot
 - Licence: proprietary, free for unmodified non-commercial use
@@ -44,10 +44,15 @@ compatibility endpoints, persistent remote-PC records, and monitor cards.
 - Replaces completion popups with a line-by-line result in step 3 and a compact
   green `SUCCESS` text in the disabled grey lower-right action button after
   completion.
-- Creates or updates the single branded `Kiloview PC Onboarding - ICMPv4 Echo`
+- Sends the current Windows version as `operatingSystemVersion` during endpoint
+  registration for the Configurator's Windows device card.
+- Atomically creates or replaces the single branded
+  `Kiloview PC Onboarding - ICMPv4 Echo`
   inbound rule after successful registration. It allows ICMPv4 Echo Request
   only on the Private profile and scopes the remote source to the Configurator
   IP, falling back to the selected subnet but never `Any`.
+- Reads the branded firewall rule back before reporting success, avoiding false
+  setup-failure warnings after Windows has accepted the rule.
 - Surfaces firewall failures as onboarding warnings; it does not modify
   unrelated rules or install a service/background heartbeat.
 - Registers the endpoint with the selected Job Configurator job.
@@ -66,8 +71,8 @@ Use `scripts\Publish.ps1` for self-contained packaging or add
 
 Current local packages:
 
-- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.298 MB,
-  SHA-256 `ADF9BC76E4D8806946FFD75B9879D6B95333C406E50C914CE40E1D30FCEA8A88`
+- `artifacts/Kiloview-PC-Onboarding-win-x64.zip` — 63.300 MB,
+  SHA-256 `24708D70755CB752DD51D4861C0CEE93801E43A07DE48496DACD7F44955FCA41`
 - `artifacts/Kiloview-PC-Onboarding-win-x64-framework-dependent.zip` —
-  0.419 MB, SHA-256
-  `A48BECA78A783BB6F5367CE0EC09D8EC8C230ABA34DD5EDCE3F56AB59814417C`
+  0.420 MB, SHA-256
+  `11E2880658380F25A1E06D151E79C4FA77A3FCD0889B7AA27384A2121680C394`

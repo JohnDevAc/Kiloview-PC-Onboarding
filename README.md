@@ -21,9 +21,9 @@ HTTP API.
    registration matching this PC's stable endpoint ID, address, or hostname;
 6. after confirming NDI Access Manager and NDI Discovery are closed, backs up
    and writes the preferred NDI interface, job send/receive group, and discovery
-   server, then configures NDI Discovery to use Access Manager settings; and
-7. registers the Windows PC with the selected job so it appears in the main
-   device monitor; and
+   server, then configures NDI Discovery to use Access Manager settings;
+7. registers the Windows PC, including its current Windows version, with the
+   selected job so the version appears on its device-monitor card; and
 8. creates or updates one branded Windows Firewall inbound ICMPv4 Echo Request
    rule on the Private profile so Job Configurator can check availability after
    the utility exits.
@@ -47,8 +47,10 @@ jobs. Selecting one changes the action to `Update this PC`; registration remains
 idempotent.
 
 The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
-onboarding updates that rule instead of adding duplicates and does not alter
-unrelated firewall rules. Its remote scope is the selected Job Configurator IP
+onboarding atomically replaces that same rule instead of adding duplicates and
+does not alter unrelated firewall rules. The utility reads the branded rule
+back before reporting success, preventing a successful rule from being shown as
+a setup failure. Its remote scope is the selected Job Configurator IP
 when available; otherwise it is limited to the selected adapter's IPv4 subnet.
 It is never opened to `Any`. The utility requests administrator elevation at
 startup and shows a warning if Windows rejects the rule. No service, background

@@ -49,4 +49,5 @@ internal sealed record RegistrationRequest(
     bool PreferredInterfaceConfigured,
     string NdiToolsVersion,
     string UtilityVersion,
-    string EulaVersion);
+    string EulaVersion,
+    string OperatingSystemVersion);

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace KiloviewPcOnboarding;
 
@@ -415,7 +416,8 @@ internal sealed class MainForm : Form
                 true,
                 _ndi.InstalledVersion?.ToString() ?? "unknown",
                 NdiToolsService.UtilityVersion(),
-                "1.0");
+                "1.0",
+                CurrentWindowsVersion());
             _serverStatus.Text = "Registering this PC with the selected job…";
             await JobConfiguratorDiscovery.RegisterAsync(network, server, request, token);
             var firewall = FirewallService.EnsurePingRule(network, server);
@@ -435,6 +437,14 @@ internal sealed class MainForm : Form
                 ]);
             OpenJobConfiguratorKeepingFocus(server.BaseUri);
         });
+    }
+
+    private static string CurrentWindowsVersion()
+    {
+        var description = RuntimeInformation.OSDescription.Trim();
+        if (string.IsNullOrWhiteSpace(description))
+            description = Environment.OSVersion.VersionString;
+        return description.Length <= 128 ? description : description[..128];
     }
 
     private void ShowCompletion(
