@@ -1,76 +1,92 @@
 # Kiloview PC Onboarding Utility
 
-This standalone Windows utility joins a remote Windows NDI endpoint to an active
-Kiloview Job Configurator job. It is maintained independently from the Job
-Configurator source and communicates through the configurator's PC onboarding
-HTTP API.
+This package bootstraps an unelevated Windows tray agent. After the agent is
+installed, onboarding is remote-only: Kiloview Job Configurator requests local
+approval, Windows requests elevation, and the elevated utility silently pulls
+and applies the server-managed configuration before showing a final result.
+Running a newer complete package locally updates the installed binaries, but
+does not expose or start a local onboarding workflow.
 
-## What it does
+## Bootstrap installation
 
-1. requires acceptance of the Kiloview PC Onboarding Utility EULA;
-2. selects the primary production IPv4 network adapter on the main onboarding
-   screen before discovery and configuration;
-3. detects the installed NDI Tools version and checks the current version on the
-   official NDI website;
-4. when required, downloads the installer directly from `downloads.ndi.tv`,
-   verifies its Windows publisher signature, and launches the interactive NDI
-   installer so the user can review NDI's own licence;
-5. scans the selected adapter's local subnet for Kiloview Job Configurator on
-   TCP port 8091, automatically rescanning whenever the selected adapter changes;
-   each discovered compatible server is also checked for an existing
-   registration matching this PC's stable endpoint ID, address, or hostname;
-6. after confirming NDI Access Manager and NDI Discovery are closed, backs up
-   and writes the preferred NDI interface, job send/receive group, and discovery
-   server, then configures NDI Discovery to use Access Manager settings;
-7. registers the Windows PC, including its current Windows version, with the
-   selected job so the version appears on its device-monitor card; and
-8. creates or updates one branded Windows Firewall inbound ICMPv4 Echo Request
-   rule on the Private profile so Job Configurator can check availability after
-   the utility exits.
+Run `Kiloview PC Onboarding.exe` from the complete package and approve UAC. The
+bootstrap UI:
 
-Each main-screen section uses a compact activity spinner while it is working
-and a green tick when it completes. Each section also has the same compact
-clockwise refresh control, including manual Job Configurator rescanning in
-step 3. The Job Configurator page always opens after onboarding, while the
-utility remains in the foreground.
+1. records EULA acceptance;
+2. selects the production IPv4 adapter;
+3. reports installed/current NDI Tools state without making it a prerequisite;
+4. installs `Kiloview PC Agent` beneath `%ProgramFiles%\Kiloview\PC Agent`;
+5. records the adapter beneath `%LocalAppData%\Kiloview\PC Agent`;
+6. creates an HKCU startup entry; and
+7. creates subnet-scoped inbound UDP 8093 and TCP 8094 firewall rules.
 
-Completion does not use a popup. Step 3 is replaced with a line-by-line summary
-of the PC, job, preferred interface, NDI discovery server, NDI group, firewall
-monitoring scope, and restart reminder. A compact `SUCCESS` label appears
-in Kiloview green inside the disabled grey lower-right action button, replacing
-its previous text for the rest of that session. The elevated application also
-reclaims foreground focus when its first window is shown.
+The bootstrap UI cannot join or update a job. Once agent state exists, launching
+the utility normally displays a message directing the user to start onboarding
+from Job Configurator.
 
-When discovery finds this PC in one or more local Job Configurators, those jobs
-are marked `already onboarded` in step 3 and the status line names the matching
-jobs. Selecting one changes the action to `Update this PC`; registration remains
-idempotent.
+## Remote onboarding
 
-The firewall rule is named `Kiloview PC Onboarding - ICMPv4 Echo`. Rerunning
-onboarding atomically replaces that same rule instead of adding duplicates and
-does not alter unrelated firewall rules. The utility reads the branded rule
-back before reporting success, preventing a successful rule from being shown as
-a setup failure. Its remote scope is the selected Job Configurator IP
-when available; otherwise it is limited to the selected adapter's IPv4 subnet.
-It is never opened to `Any`. The utility requests administrator elevation at
-startup and shows a warning if Windows rejects the rule. No service, background
-heartbeat, or resident process is installed.
+The tray agent listens for the exact UDP discovery query
+`KILOVIEW_PC_AGENT_DISCOVER_V1` on port 8093. Its read-only API on TCP 8094
+provides health, monitoring, membership, and locally approved remote-onboarding
+entry points. Both the Windows Firewall rules and the agent's own request checks
+restrict access to the selected production subnet.
+
+Job Configurator initiates onboarding with
+`POST /api/v1/onboarding/open`. The PC displays a Yes/No prompt naming the TCP
+source and warning that NDI and Windows adapter settings may change. Approval
+launches the installed utility with UAC; denial returns HTTP 403.
+
+The elevated process has no main onboarding UI. It:
+
+1. fetches `GET /api/pc-onboarding/configuration/{endpointId}` from the requesting
+   Configurator on TCP 8091;
+2. validates product, schema, stable endpoint identity, adapter identity, job,
+   NDI discovery address, and all requested network fields;
+3. optionally retains the current network, switches the selected adapter to
+   DHCP, or applies static IPv4/prefix, gateway, and DNS settings;
+4. applies the preferred NDI interface, send/receive group, and discovery server;
+5. refreshes agent state and firewall scope;
+6. registers the PC with the existing Configurator registration endpoint; and
+7. shows one final success or failure message.
+
+Static addressing is accepted only when the target PC address remains in the
+requesting Configurator's subnet. A supplied gateway must be in that same subnet.
+Remote settings are declarative; the protocol does not accept commands, scripts,
+credentials, executable paths, or arbitrary file content.
+
+NDI Tools is not a prerequisite for agent installation or remote registration.
+The final message always reports NDI state. If Tools is missing, older than the
+current official release, or currency cannot be confirmed, the user is directed
+to `https://ndi.video/tools/`.
+
+## Tray agent
+
+The tray agent is a per-user application, not a Windows service or scheduled
+task. Double-clicking the icon opens read-only agent status. Its menu lists
+onboarded jobs, opens their Configurator pages, supports locally confirmed job
+removal, and exits the current tray process. There is no local onboarding action.
+
+Agent discovery advertises `remote-onboarding-v2` and `network-config-v1` in
+addition to the existing status, membership, and open-request capabilities.
+Status includes current DHCP state, default gateways, and DNS servers for the
+selected adapter. It contains no passwords, tokens, or NDI configuration file
+contents.
+
+See `SERVER-REMOTE-ONBOARDING-HANDOVER.md` for the server contract and
+`TEST-MACHINE-HANDOVER.md` for acceptance testing.
 
 ## Requirements
 
-- Windows 10 or 11, x64
-- administrator approval (required by NDI Tools, the shared NDI configuration,
-  and the scoped Windows Firewall availability rule)
-- an active IPv4 production network
-- a current Kiloview Job Configurator running with LAN access and its private or
-  domain Windows Firewall rule enabled
+- Windows 10 or 11 x64;
+- administrator approval for bootstrap and each approved remote onboarding;
+- an active IPv4 production adapter;
+- Kiloview Job Configurator reachable on TCP 8091 in the selected subnet; and
+- NDI Access Manager and NDI Discovery closed while settings are written.
 
-The Job Configurator and this utility must be from the same compatible release.
-An older Configurator can still supply the job settings, but cannot register the
-PC until it is updated. NDI Access Manager and NDI Discovery must be closed while
-settings are applied so they cannot overwrite the updated JSON when they exit.
-Running NDI applications must be restarted after onboarding because NDI
-applications load Access Manager settings at startup.
+Running NDI applications must be restarted after onboarding. If NDI Tools is
+missing or outdated, install the latest release from the NDI website after the
+remote process completes.
 
 ## Build
 
@@ -80,12 +96,12 @@ From the repository root:
 .\scripts\Publish.ps1
 ```
 
-The self-contained executable and distribution ZIP are written beneath
-`artifacts`.
-
-For the much smaller package that requires the .NET 8 Desktop Runtime on the
-destination PC:
+For the smaller package that requires the .NET 8 Desktop Runtime:
 
 ```powershell
 .\scripts\Publish.ps1 -FrameworkDependent
 ```
+
+Both packages include the bootstrap executable, agent payload, licence, remote
+server handover, and test-machine handover. ZIP checksum manifests are generated
+beside the archives.

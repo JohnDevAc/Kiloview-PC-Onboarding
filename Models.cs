@@ -51,3 +51,43 @@ internal sealed record RegistrationRequest(
     string UtilityVersion,
     string EulaVersion,
     string OperatingSystemVersion);
+
+internal sealed record RemoteOnboardingOptions(
+    Uri ConfiguratorBaseUri,
+    string EndpointId,
+    string RequestingAddress);
+
+internal sealed record RemoteOnboardingConfiguration(
+    int SchemaVersion,
+    string Product,
+    string EndpointId,
+    string JobName,
+    string NdiDiscoveryServerIp,
+    RemoteNetworkConfiguration? Network);
+
+internal sealed record RemoteNetworkConfiguration(
+    string AdapterId,
+    string Mode,
+    string? Address,
+    int? PrefixLength,
+    string? DefaultGateway,
+    IReadOnlyList<string>? DnsServers);
+
+internal sealed record NetworkConfigurationPlan(
+    NetworkChoice Current,
+    string Mode,
+    string? Address,
+    int? PrefixLength,
+    string? DefaultGateway,
+    IReadOnlyList<string>? DnsServers)
+{
+    public bool ChangesNetwork => !string.Equals(Mode, "unchanged", StringComparison.Ordinal);
+}
+
+internal sealed record RemoteOnboardingResult(
+    string JobName,
+    string Address,
+    int PrefixLength,
+    bool NetworkChanged,
+    bool NdiUpdateRequired,
+    string NdiStatusMessage);

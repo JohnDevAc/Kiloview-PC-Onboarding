@@ -28,12 +28,23 @@ internal static class NdiConfigurationService
         JobConfiguratorInstance server,
         CancellationToken ct)
     {
+        EnsureApplicationsClosed();
+        await ApplyConfigurationFilesAsync(network, server, ct);
+    }
+
+    internal static void EnsureApplicationsClosed()
+    {
         if (IsAccessManagerRunning() || IsDiscoveryRunning())
             throw new InvalidOperationException(
                 "Close NDI Access Manager and NDI Discovery before applying settings. "
                 + "Either application can overwrite externally applied settings when it exits.");
+    }
 
-        await ApplyConfigurationFilesAsync(network, server, ct);
+    internal static async Task PreflightAsync(CancellationToken ct)
+    {
+        EnsureApplicationsClosed();
+        _ = await ReadConfigurationAsync(ConfigPath, "NDI Access Manager", ct);
+        _ = await ReadConfigurationAsync(DiscoveryUiConfigPath, "NDI Discovery", ct);
     }
 
     internal static async Task ApplyConfigurationFilesAsync(

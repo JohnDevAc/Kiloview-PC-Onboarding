@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-
 namespace KiloviewPcOnboarding;
 
 internal sealed class MainForm : Form
@@ -17,11 +14,10 @@ internal sealed class MainForm : Form
     private readonly Button _refreshNetwork = UiTheme.RefreshButton("Refresh network adapters");
     private readonly Button _ndiAction = UiTheme.RefreshButton("Check NDI Tools");
     private readonly Button _scan = UiTheme.RefreshButton("Rescan for Job Configurator");
-    private readonly CompletionActionButton _onboard = UiTheme.CompletionButton("Onboard this PC");
+    private readonly Button _onboard = UiTheme.CompletionButton("REMOTE ONLY");
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
-    private bool _onboardingComplete;
-    private string _completionButtonText = "SUCCESS";
+    private AgentInstallationResult? _agentInstallation;
 
     public MainForm(Icon icon)
     {
@@ -37,7 +33,7 @@ internal sealed class MainForm : Form
 
         Controls.Add(BuildBody());
         Controls.Add(BuildHeader());
-        LoadNetworks();
+        LoadNetworks(AgentInstallationService.PreferredNetwork());
         WireEvents();
         Shown += async (_, _) =>
         {
@@ -53,7 +49,7 @@ internal sealed class MainForm : Form
     {
         var title = UiTheme.Label("Onboard this Windows PC", 22, true);
         var subtitle = UiTheme.Label(
-            "Select the production network, verify NDI Tools, then join the local Kiloview job.",
+            "Select the production network and install the agent. Job onboarding is then initiated remotely.",
             10);
         subtitle.ForeColor = UiTheme.Muted;
         var version = UiTheme.Label($"Utility v{NdiToolsService.UtilityVersion()} · EULA 1.0", 9);
@@ -250,9 +246,10 @@ internal sealed class MainForm : Form
         {
             if (_ndi?.UpdateRequired == true) await InstallNdiAsync();
             else await CheckNdiAsync();
+            if (_network.SelectedItem is NetworkChoice && _ndi?.UpdateRequired == false)
+                await ScanAsync();
         };
         _scan.Click += async (_, _) => await ScanAsync();
-        _servers.SelectedIndexChanged += (_, _) => UpdateReadyState();
         _network.SelectedIndexChanged += async (_, _) =>
         {
             if (_network.SelectedItem is NetworkChoice selected)
@@ -269,7 +266,6 @@ internal sealed class MainForm : Form
             if (_network.SelectedItem is NetworkChoice)
                 await ScanAsync();
         };
-        _onboard.Click += async (_, _) => await OnboardAsync();
     }
 
     private void LoadNetworks(NetworkChoice? requested = null)
@@ -343,6 +339,14 @@ internal sealed class MainForm : Form
         {
             _servers.Items.Clear();
             _serverStatus.ForeColor = UiTheme.Muted;
+            // Agent installation is independent of NDI Tools availability. Remote
+            // onboarding reports missing or outdated NDI Tools after applying settings.
+            {
+                _serverStatus.Text = "Installing or updating the Kiloview PC Agent…";
+                _agentInstallation = await Task.Run(
+                    () => AgentInstallationService.InstallOrUpdate(network),
+                    token);
+            }
             _serverStatus.Text = $"Searching {ScanDescription(network)} for Kiloview Job Configurator…";
             var servers = await JobConfiguratorDiscovery.FindAsync(network, null, token);
             var registeredAddresses = await JobConfiguratorDiscovery.FindExistingRegistrationsAsync(
@@ -357,9 +361,15 @@ internal sealed class MainForm : Form
                     AlreadyOnboarded = registeredAddresses.Contains(server.Address)
                 })
                 .ToArray();
+            if (_agentInstallation is { Installed: true })
+            {
+                foreach (var existing in displayedServers.Where(server => server.AlreadyOnboarded))
+                    AgentInstallationService.RecordMembership(network, existing);
+            }
             foreach (var server in displayedServers)
                 _servers.Items.Add(server);
-            if (_servers.Items.Count == 1) _servers.SelectedIndex = 0;
+            if (_servers.Items.Count == 1)
+                _servers.SelectedIndex = 0;
             var compatible = displayedServers.Count(server => server.SupportsRegistration);
             var existingJobs = displayedServers
                 .Where(server => server.AlreadyOnboarded)
@@ -375,104 +385,18 @@ internal sealed class MainForm : Form
                     _ when compatible < displayedServers.Length => $"Found {displayedServers.Length} active jobs; update entries marked “update required” before use.",
                     _ => $"Found {displayedServers.Length} active job{(displayedServers.Length == 1 ? "" : "s")}."
                 };
-            _serverStatus.ForeColor = displayedServers.Length == 0 ? UiTheme.Amber : UiTheme.Green;
+            if (_agentInstallation is { Installed: false })
+                _serverStatus.Text = $"WARNING: {_agentInstallation.Message} {_serverStatus.Text}";
+            else if (_agentInstallation is { Installed: true })
+                _serverStatus.Text = $"PC Agent ready. Start onboarding from Job Configurator. {_serverStatus.Text}";
+            _serverStatus.ForeColor = displayedServers.Length == 0
+                || _agentInstallation is { Installed: false }
+                    ? UiTheme.Amber
+                    : UiTheme.Green;
         });
+        if (_agentInstallation is { Installed: false })
+            _jobActivity.State = ActivityState.Error;
         UpdateReadyState();
-    }
-
-    private async Task OnboardAsync()
-    {
-        if (_network.SelectedItem is not NetworkChoice network
-            || _servers.SelectedItem is not JobConfiguratorInstance server
-            || _ndi is null
-            || _ndi.UpdateRequired)
-            return;
-        await RunBusyAsync(_jobActivity, async token =>
-        {
-            _serverStatus.ForeColor = UiTheme.Muted;
-            _serverStatus.Text = "Applying the preferred interface, NDI group, and discovery server…";
-            await NdiConfigurationService.ApplyAsync(network, server, token);
-            if (!server.SupportsRegistration)
-            {
-                ShowCompletion(
-                    "SETTINGS APPLIED",
-                    [
-                        $"Job: {server.JobName}",
-                        $"Preferred interface: {network.Address}",
-                        $"NDI discovery server: {server.NdiDiscoveryServerIp}",
-                        $"NDI group: {server.JobName}",
-                        "NDI Discovery: Use Access Manager Settings",
-                        "Registration: Update Job Configurator before registering this PC."
-                    ]);
-                OpenJobConfiguratorKeepingFocus(server.BaseUri);
-                return;
-            }
-            var request = new RegistrationRequest(
-                ConsentStore.EndpointId(),
-                Environment.MachineName,
-                network.Address,
-                network.Name,
-                network.PrefixLength,
-                true,
-                _ndi.InstalledVersion?.ToString() ?? "unknown",
-                NdiToolsService.UtilityVersion(),
-                "1.0",
-                CurrentWindowsVersion());
-            _serverStatus.Text = "Registering this PC with the selected job…";
-            await JobConfiguratorDiscovery.RegisterAsync(network, server, request, token);
-            var firewall = FirewallService.EnsurePingRule(network, server);
-            var firewallMessage = firewall.Applied
-                ? $"Ping monitoring: Private profile, source {firewall.RemoteScope}"
-                : $"WARNING: {firewall.Warning}";
-            ShowCompletion(
-                "SUCCESS",
-                [
-                    $"PC: {Environment.MachineName}",
-                    $"Job: {server.JobName}",
-                    $"Preferred interface: {network.Address}",
-                    $"NDI discovery server: {server.NdiDiscoveryServerIp}",
-                    $"NDI group: {server.JobName}",
-                    firewallMessage,
-                    "Restart any running NDI applications."
-                ]);
-            OpenJobConfiguratorKeepingFocus(server.BaseUri);
-        });
-    }
-
-    private static string CurrentWindowsVersion()
-    {
-        var description = RuntimeInformation.OSDescription.Trim();
-        if (string.IsNullOrWhiteSpace(description))
-            description = Environment.OSVersion.VersionString;
-        return description.Length <= 128 ? description : description[..128];
-    }
-
-    private void ShowCompletion(
-        string resultText,
-        IEnumerable<string> details)
-    {
-        _onboardingComplete = true;
-        _completionButtonText = resultText;
-        _onboard.CompletionState = true;
-
-        _servers.BeginUpdate();
-        _servers.Items.Clear();
-        foreach (var line in details)
-            _servers.Items.Add(line);
-        _servers.EndUpdate();
-        _serverStatus.Text = "";
-        _serverStatus.Visible = false;
-        _onboard.Text = resultText;
-        _onboard.BackColor = UiTheme.Border;
-        _onboard.ForeColor = UiTheme.Muted;
-        _onboard.FlatAppearance.BorderColor = UiTheme.Border;
-        _onboard.Enabled = false;
-    }
-
-    private void OpenJobConfiguratorKeepingFocus(Uri address)
-    {
-        Process.Start(new ProcessStartInfo(address.ToString()) { UseShellExecute = true });
-        UiTheme.ReclaimForeground(this, 4000);
     }
 
     private void UpdateNdiActionHint()
@@ -518,25 +442,16 @@ internal sealed class MainForm : Form
 
     private void SetBusy(bool busy)
     {
-        var selectedServer = _servers.SelectedItem as JobConfiguratorInstance;
-        _onboard.Text = _onboardingComplete
-            ? _completionButtonText
-            : selectedServer is { SupportsRegistration: false }
-                ? "Apply NDI settings"
-                : selectedServer is { AlreadyOnboarded: true }
-                    ? "Update this PC"
-                    : "Onboard this PC";
+        _onboard.Text = _agentInstallation is { Installed: true }
+            ? "AGENT READY"
+            : "REMOTE ONLY";
         UseWaitCursor = busy;
         _network.Enabled = !busy;
         _refreshNetwork.Enabled = !busy;
         _ndiAction.Enabled = !busy;
         _scan.Enabled = !busy;
         _servers.Enabled = !busy;
-        _onboard.Enabled = !_onboardingComplete
-            && !busy
-            && _network.SelectedItem is NetworkChoice
-            && selectedServer is not null
-            && _ndi?.UpdateRequired == false;
+        _onboard.Enabled = false;
     }
 
     private void UpdateReadyState() => SetBusy(false);

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Kiloview PC Agent</AssemblyName>
+    <RootNamespace>KiloviewPcAgent</RootNamespace>
+    <Product>Kiloview PC Agent</Product>
+    <AssemblyTitle>Kiloview PC Agent</AssemblyTitle>
+    <Description>Startup tray agent for discovery, monitoring, and locally approved remote onboarding.</Description>
+    <ApplicationIcon>..\assets\KiloviewSetup.ico</ApplicationIcon>
+    <ApplicationManifest>agent.manifest</ApplicationManifest>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\assets\KiloviewSetup.ico" Link="assets\KiloviewSetup.ico" LogicalName="KiloviewPcAgent.BrandIcon.ico" />
+  </ItemGroup>
+</Project>
