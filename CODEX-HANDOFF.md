@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding 0.3.0-dev.1 developer handoff
+# Kiloview PC Onboarding 0.3.0 developer handoff
 
 ## Current workflow
 
