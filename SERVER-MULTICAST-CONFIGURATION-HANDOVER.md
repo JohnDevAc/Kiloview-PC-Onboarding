@@ -2,7 +2,7 @@
 
 > **Compatibility note:** `AGENT-MULTICAST-24-UPGRADE-HANDOVER.md` supersedes
 > this document's `/28` allocation and validation requirements. Agent
-> `0.4.0-dev.3` uses exact aligned `/24` sender allocations while retaining the
+> `0.4.0` uses exact aligned `/24` sender allocations while retaining the
 > same `multicast-config-v1` endpoint and schema.
 
 ## Objective
@@ -250,4 +250,4 @@ must not alter membership or report a false multicast state.
    replaced with an empty configuration.
 10. Apply and revert work without UAC and without displaying onboarding UI.
 
-The compatible agent implementation is packaged as `0.4.0-dev.2`.
+The compatible stable agent implementation is packaged as `0.4.0`.

@@ -277,7 +277,7 @@ and the test-machine apply no longer returns the legacy `/28` validation error.
 
 ## Agent implementation status
 
-Implemented in companion agent `0.4.0-dev.3`. The automated validation suite
+Implemented in companion agent `0.4.0`. The automated validation suite
 covers the mandatory `/24` request, mask/range/TTL boundaries, idempotency,
 exact-assignment drift, receive sender-subnet preservation and derivation,
 unicast revert, authorization, application preflight, and corrupt-file recovery.
