@@ -9,7 +9,7 @@
     <AssemblyName>Kiloview PC Onboarding</AssemblyName>
     <RootNamespace>KiloviewPcOnboarding</RootNamespace>
     <AssemblyTitle>Kiloview PC Onboarding Utility</AssemblyTitle>
-    <Description>Onboard a Windows NDI endpoint into Kiloview Job Configurator.</Description>
+    <Description>Bootstrap the Kiloview PC Agent and apply locally approved remote onboarding settings.</Description>
     <ApplicationIcon>assets\KiloviewSetup.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <InvariantGlobalization>true</InvariantGlobalization>
@@ -20,6 +20,11 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiloview.PcOnboarding.Validation" />
+    <Compile Remove="Agent\**\*.cs" />
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="Agent\**\*" />
+    <None Remove="tests\**\*" />
     <EmbeddedResource Include="LICENSE.md" LogicalName="KiloviewPcOnboarding.License.md" />
     <EmbeddedResource Include="assets\KiloviewSetup.ico" LogicalName="KiloviewPcOnboarding.BrandIcon.ico" />
   </ItemGroup>
