@@ -107,24 +107,44 @@ internal static class RemoteOnboardingService
     {
         using var client = NetworkService.CreateBoundClient(current, TimeSpan.FromSeconds(10));
         var path = $"/api/pc-onboarding/configuration/{Uri.EscapeDataString(options.EndpointId)}";
-        using var response = await client.GetAsync(new Uri(options.ConfiguratorBaseUri, path), ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            throw new InvalidOperationException(
-                ErrorMessage(body)
-                ?? $"Job Configurator returned {(int)response.StatusCode} while settings were requested.");
-        }
+        HttpResponseMessage response;
         try
         {
-            return await response.Content.ReadFromJsonAsync<RemoteOnboardingConfiguration>(Json, ct)
-                ?? throw new InvalidOperationException("Job Configurator returned an empty configuration.");
+            response = await client.GetAsync(new Uri(options.ConfiguratorBaseUri, path), ct);
         }
-        catch (JsonException ex)
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
             throw new InvalidOperationException(
-                "Job Configurator returned invalid remote onboarding JSON.",
+                "Timed out waiting for Job Configurator to return this PC's onboarding settings. "
+                + "Confirm the server remains responsive after it accepts the onboarding request, then retry.",
                 ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException(
+                "Job Configurator could not be reached while this PC requested its onboarding settings.",
+                ex);
+        }
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                throw new InvalidOperationException(
+                    ErrorMessage(body)
+                    ?? $"Job Configurator returned {(int)response.StatusCode} while settings were requested.");
+            }
+            try
+            {
+                return await response.Content.ReadFromJsonAsync<RemoteOnboardingConfiguration>(Json, ct)
+                    ?? throw new InvalidOperationException("Job Configurator returned an empty configuration.");
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(
+                    "Job Configurator returned invalid remote onboarding JSON.",
+                    ex);
+            }
         }
     }
 

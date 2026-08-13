@@ -142,6 +142,13 @@ internal static class AgentInstallationService
                     StringComparison.OrdinalIgnoreCase));
                 memberships.Add(membership);
             }
+            var multicast = current?.Multicast;
+            if (multicast is not null
+                && !memberships.Any(item => string.Equals(
+                    item.JobName,
+                    multicast.JobName,
+                    StringComparison.Ordinal)))
+                multicast = null;
             var now = DateTimeOffset.UtcNow;
             var state = new AgentState(
                 1,
@@ -152,7 +159,8 @@ internal static class AgentInstallationService
                 network.PrefixLength,
                 current?.InstalledUtc ?? now,
                 now,
-                memberships.OrderBy(item => item.JobName, StringComparer.OrdinalIgnoreCase).ToArray());
+                memberships.OrderBy(item => item.JobName, StringComparer.OrdinalIgnoreCase).ToArray(),
+                multicast);
             var temporaryPath = StatePath + ".tmp";
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(state, Json));
             File.Move(temporaryPath, StatePath, true);
@@ -325,31 +333,25 @@ internal static class AgentInstallationService
     {
         if (IsAgentRunning())
             return true;
-        object? shell = null;
-        try
-        {
-            var shellType = Type.GetTypeFromProgID("Shell.Application");
-            if (shellType is null)
-                return false;
-            shell = Activator.CreateInstance(shellType);
-            ((dynamic)shell!).ShellExecute(
-                InstalledAgentPath,
-                "",
-                InstallDirectory,
-                "open",
-                0);
-            for (var attempt = 0; attempt < 20; attempt++)
-            {
-                Thread.Sleep(100);
-                if (IsAgentRunning())
-                    return true;
-            }
+        var explorer = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            "explorer.exe");
+        if (!File.Exists(explorer))
             return false;
-        }
-        finally
+        using (Process.Start(new ProcessStartInfo(explorer)
         {
-            ReleaseComObject(shell);
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = InstallDirectory,
+            ArgumentList = { InstalledAgentPath }
+        })) { }
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            Thread.Sleep(100);
+            if (IsAgentRunning())
+                return true;
         }
+        return false;
     }
 
     private static bool IsAgentRunning() => Process.GetProcessesByName("Kiloview PC Agent")
@@ -547,11 +549,21 @@ internal static class AgentInstallationService
         int PrefixLength,
         DateTimeOffset InstalledUtc,
         DateTimeOffset UpdatedUtc,
-        IReadOnlyList<AgentMembershipState> Memberships);
+        IReadOnlyList<AgentMembershipState> Memberships,
+        AgentMulticastState? Multicast = null);
 
     private sealed record AgentMembershipState(
         string ServerAddress,
         string BaseUri,
         string JobName,
         DateTimeOffset RegisteredUtc);
+
+    private sealed record AgentMulticastState(
+        string JobName,
+        DateTimeOffset UpdatedUtc,
+        string? NetPrefix = null,
+        string? Netmask = null,
+        int? Ttl = null,
+        bool SendEnabled = true,
+        bool ReceiveEnabled = true);
 }

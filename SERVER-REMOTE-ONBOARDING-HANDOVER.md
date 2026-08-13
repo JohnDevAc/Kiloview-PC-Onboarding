@@ -11,8 +11,9 @@ applies it without showing the old onboarding UI, registers the PC, and displays
 one final success or failure message locally.
 
 The HTTP `202 Accepted` response from the agent means the user approved the
-request and elevated processing was launched. It does not mean onboarding has
-finished. Treat the subsequent registration update as completion.
+request and elevated processing has been scheduled. It does not mean UAC was
+accepted or onboarding has finished. Treat the subsequent registration update
+as completion.
 
 ## Agent discovery and compatibility
 
@@ -26,7 +27,8 @@ Continue sending the exact UTF-8 UDP query
     "memberships-v1",
     "open-onboarding-v1",
     "remote-onboarding-v2",
-    "network-config-v1"
+    "network-config-v1",
+    "multicast-config-v1"
   ]
 }
 ```
@@ -139,8 +141,8 @@ Content-Type: application/json
 4. The agent replaces `serverAddress` with the TCP source and reconstructs
    `configuratorUrl` as `http://TCP_SOURCE:8091/`. The local prompt
    warns that NDI and Windows network settings may change.
-5. On local denial, expect `403 Forbidden`. On approval and successful UAC
-   launch, expect `202 Accepted`.
+5. On local denial, expect `403 Forbidden`. On approval, expect `202 Accepted`.
+   The agent waits briefly after sending this response and then requests UAC.
 6. The elevated utility fetches the staged configuration, applies network and
    NDI settings, refreshes agent state/firewall scope, and calls the existing
    `POST /api/pc-onboarding/register` endpoint. A changed static/DHCP address is
@@ -184,6 +186,9 @@ not be confirmed.
   the agent replaces both with the actual TCP source and fixed port 8091.
 - Do not report completion from the `202` alone. Require the stable endpoint's
   registration update.
+- Do not hold an application-wide lock or block the HTTP listener while waiting
+  for the agent's POST response. `/api/health` and the configuration GET must
+  remain responsive throughout onboarding.
 - Log who staged the network change, the before/after values, request time,
   approval result, and registration result. Do not log secrets or expose the
   endpoint ID outside operational diagnostics.

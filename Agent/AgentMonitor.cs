@@ -2,6 +2,7 @@ using Microsoft.Win32;
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Text.RegularExpressions;
@@ -12,6 +13,7 @@ internal static partial class AgentMonitor
 {
     public static object Snapshot(AgentConfiguration configuration, DateTimeOffset agentStartedUtc)
     {
+        configuration = AgentStore.Read() ?? configuration;
         var ndi = FindNdiTools();
         var drive = DriveInfo.GetDrives().FirstOrDefault(item =>
             item.IsReady && string.Equals(
@@ -51,6 +53,7 @@ internal static partial class AgentMonitor
                     .Select(item => item.ToString())
                     .ToArray() ?? []
             },
+            multicastConfiguration = AgentMulticastService.Current(configuration),
             ndiToolsInstalled = ndi.Installed,
             ndiToolsVersion = ndi.Version,
             agentStartedUtc,
@@ -118,8 +121,14 @@ internal static partial class AgentMonitor
         return new(found, best?.ToString());
     }
 
-    public static string Version() =>
-        typeof(AgentMonitor).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+    public static string Version()
+    {
+        var assembly = typeof(AgentMonitor).Assembly;
+        return assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                   ?.InformationalVersion
+               ?? assembly.GetName().Version?.ToString(3)
+               ?? "unknown";
+    }
 
     [GeneratedRegex(@"(?i)(Vizrt|NDI|NewTek)")]
     private static partial Regex PublisherPattern();

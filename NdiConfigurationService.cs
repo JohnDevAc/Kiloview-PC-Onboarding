@@ -29,6 +29,7 @@ internal static class NdiConfigurationService
         CancellationToken ct)
     {
         EnsureApplicationsClosed();
+        await using var configurationLock = await AcquireConfigurationLockAsync(ct);
         await ApplyConfigurationFilesAsync(network, server, ct);
     }
 
@@ -191,6 +192,39 @@ internal static class NdiConfigurationService
         finally
         {
             if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static async Task<FileStream> AcquireConfigurationLockAsync(CancellationToken ct)
+    {
+        var directory = Path.GetDirectoryName(ConfigPath)
+            ?? throw new InvalidOperationException("The NDI configuration directory could not be resolved.");
+        Directory.CreateDirectory(directory);
+        var lockPath = Path.Combine(directory, ".kiloview-ndi-configuration.lock");
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    1,
+                    FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(100, ct);
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException(
+                    "The NDI configuration is currently being updated. Retry shortly.",
+                    ex);
+            }
         }
     }
 

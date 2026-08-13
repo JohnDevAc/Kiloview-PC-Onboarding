@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding 0.3.0 developer handoff
+# Kiloview PC Onboarding 0.4.0-dev.3 developer handoff
 
 ## Current workflow
 
@@ -37,6 +37,21 @@ update, or manual currency verification is needed.
 Agent discovery advertises `remote-onboarding-v2` and `network-config-v1`.
 Status includes DHCP state, IPv4 gateways, and IPv4 DNS servers for the selected
 adapter. The existing registration and deletion endpoints remain unchanged.
+
+Version `0.4.0-dev.3` advertises `multicast-config-v1`. An authorized
+existing membership can apply or revert its NDI Access Manager multicast state
+through `PUT /api/v1/multicast/configuration` without UAC. The agent validates
+the endpoint, adapter, source membership, job, organization-local aligned `/24`
+range, mask, and TTL; writes atomically; preserves unrelated fields; reports
+live status and drift; and records a safe audit entry. See
+`SERVER-MULTICAST-CONFIGURATION-HANDOVER.md`. The exact assigned prefix, mask,
+TTL, and enable flags are persisted so a different valid `/24` is still reported
+as drift. Valid NDI receive sender-subnet entries are preserved; a missing or
+invalid entry is derived from the selected production adapter.
+
+The agent also prevents non-installed workspace/package copies from
+holding the single-instance lock. Such launches redirect to the Program Files
+agent, and remote onboarding resolves the installed utility as a fallback.
 
 ## Build and validation
 

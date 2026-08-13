@@ -14,6 +14,8 @@ internal sealed class AgentNetworkHost : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly Func<AgentConfiguration> _configuration;
     private readonly Func<OnboardingLaunchRequest, Task<bool>> _confirmLaunch;
+    private readonly Action<OnboardingLaunchRequest>? _launchApproved;
+    private readonly TimeSpan _launchDelay;
     private readonly int _discoveryPort;
     private readonly int _apiPort;
     private readonly DateTimeOffset _startedUtc = DateTimeOffset.UtcNow;
@@ -25,12 +27,16 @@ internal sealed class AgentNetworkHost : IDisposable
         Func<AgentConfiguration> configuration,
         Func<OnboardingLaunchRequest, Task<bool>> confirmLaunch,
         int discoveryPort = DiscoveryPort,
-        int apiPort = ApiPort)
+        int apiPort = ApiPort,
+        Action<OnboardingLaunchRequest>? launchApproved = null,
+        TimeSpan? launchDelay = null)
     {
         _configuration = configuration;
         _confirmLaunch = confirmLaunch;
         _discoveryPort = discoveryPort;
         _apiPort = apiPort;
+        _launchApproved = launchApproved;
+        _launchDelay = launchDelay ?? TimeSpan.FromSeconds(1);
     }
 
     public void Start()
@@ -107,7 +113,8 @@ internal sealed class AgentNetworkHost : IDisposable
                         "memberships-v1",
                         "open-onboarding-v1",
                         "remote-onboarding-v2",
-                        "network-config-v1"
+                        "network-config-v1",
+                        "multicast-config-v1"
                     }
                 }, Json);
                 await _udp.SendAsync(response, result.RemoteEndPoint, ct);
@@ -143,6 +150,7 @@ internal sealed class AgentNetworkHost : IDisposable
                     request.Method,
                     request.Path.Split('?', 2)[0],
                     request.Body,
+                    request.ContentType,
                     remote,
                     ct);
             }
@@ -165,6 +173,7 @@ internal sealed class AgentNetworkHost : IDisposable
         var headerEnd = -1;
         var contentLength = 0;
         var chunked = false;
+        string? contentType = null;
         byte[]? decodedChunkedBody = null;
         while (true)
         {
@@ -195,6 +204,8 @@ internal sealed class AgentNetworkHost : IDisposable
                     if (line.StartsWith("Transfer-Encoding:", StringComparison.OrdinalIgnoreCase)
                         && line[18..].Contains("chunked", StringComparison.OrdinalIgnoreCase))
                         chunked = true;
+                    if (line.StartsWith("Content-Type:", StringComparison.OrdinalIgnoreCase))
+                        contentType = line[13..].Trim();
                 }
                 if (contentLength is < 0 or > maximumBody)
                     throw new InvalidDataException("Request body is too large.");
@@ -222,7 +233,7 @@ internal sealed class AgentNetworkHost : IDisposable
             decodedChunkedBody ?? requestBytes,
             decodedChunkedBody is null ? headerEnd + 4 : 0,
             decodedChunkedBody?.Length ?? contentLength);
-        return new(components[0], components[1], body);
+        return new(components[0], components[1], body, contentType);
     }
 
     private static bool TryDecodeChunkedBody(
@@ -300,6 +311,7 @@ internal sealed class AgentNetworkHost : IDisposable
         string method,
         string path,
         string body,
+        string? contentType,
         IPAddress remote,
         CancellationToken ct)
     {
@@ -317,7 +329,14 @@ internal sealed class AgentNetworkHost : IDisposable
         }
         if (method == "GET" && path == "/api/v1/status")
         {
-            await WriteJsonAsync(client, 200, AgentMonitor.Snapshot(state, _startedUtc), ct);
+            try
+            {
+                await WriteJsonAsync(client, 200, AgentMonitor.Snapshot(state, _startedUtc), ct);
+            }
+            catch (AgentApiException ex)
+            {
+                await WriteJsonAsync(client, ex.StatusCode, new { error = ex.Message }, ct);
+            }
             return;
         }
         if (method == "GET" && path == "/api/v1/memberships")
@@ -350,9 +369,48 @@ internal sealed class AgentNetworkHost : IDisposable
                     ? new { status = "accepted", message = "Elevated remote onboarding is starting on the Windows PC." }
                     : new { status = "denied", message = "The Windows user did not approve onboarding." },
                 ct);
+            if (approved && _launchApproved is not null)
+                _ = LaunchApprovedAfterResponseAsync(payload);
+            return;
+        }
+        if (method == "PUT" && path == "/api/v1/multicast/configuration")
+        {
+            if (contentType is null
+                || !contentType.StartsWith("application/json", StringComparison.OrdinalIgnoreCase))
+            {
+                await WriteJsonAsync(client, 400, new { error = "Content-Type must be application/json." }, ct);
+                return;
+            }
+            try
+            {
+                var result = AgentMulticastService.Apply(state, remote, body);
+                await WriteJsonAsync(client, 200, result, ct);
+            }
+            catch (AgentApiException ex)
+            {
+                await WriteJsonAsync(client, ex.StatusCode, new { error = ex.Message }, ct);
+            }
+            catch
+            {
+                await WriteJsonAsync(
+                    client,
+                    500,
+                    new { error = "The local NDI multicast configuration could not be safely updated." },
+                    ct);
+            }
             return;
         }
         await WriteJsonAsync(client, 404, new { error = "Endpoint not found." }, ct);
+    }
+
+    private async Task LaunchApprovedAfterResponseAsync(OnboardingLaunchRequest request)
+    {
+        try
+        {
+            await Task.Delay(_launchDelay, _stopping.Token);
+            _launchApproved!(request);
+        }
+        catch (OperationCanceledException) when (_stopping.IsCancellationRequested) { }
     }
 
     private static async Task WriteJsonAsync(
@@ -369,7 +427,9 @@ internal sealed class AgentNetworkHost : IDisposable
             400 => "Bad Request",
             403 => "Forbidden",
             404 => "Not Found",
+            409 => "Conflict",
             413 => "Payload Too Large",
+            500 => "Internal Server Error",
             _ => "Error"
         };
         var headers = Encoding.ASCII.GetBytes(
@@ -405,5 +465,9 @@ internal sealed class AgentNetworkHost : IDisposable
         return BitConverter.ToUInt32(bytes);
     }
 
-    private sealed record HttpRequestData(string Method, string Path, string Body);
+    private sealed record HttpRequestData(
+        string Method,
+        string Path,
+        string Body,
+        string? ContentType);
 }

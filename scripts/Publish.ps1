@@ -48,10 +48,16 @@ Copy-Item -Path (Join-Path $agentOutput '*') -Destination $agentPayload -Recurse
 $readme = Join-Path $projectRoot 'README.md'
 $license = Join-Path $projectRoot 'LICENSE.md'
 $remoteOnboardingHandover = Join-Path $projectRoot 'SERVER-REMOTE-ONBOARDING-HANDOVER.md'
+$retryHandover = Join-Path $projectRoot 'SERVER-ONBOARDING-RETRY-HANDOVER.md'
+$multicastHandover = Join-Path $projectRoot 'SERVER-MULTICAST-CONFIGURATION-HANDOVER.md'
+$multicast24Handover = Join-Path $projectRoot 'AGENT-MULTICAST-24-UPGRADE-HANDOVER.md'
 $testMachineHandover = Join-Path $projectRoot 'TEST-MACHINE-HANDOVER.md'
 Copy-Item -LiteralPath $readme -Destination (Join-Path $output 'README.md') -Force
 Copy-Item -LiteralPath $license -Destination (Join-Path $output 'LICENSE.md') -Force
 Copy-Item -LiteralPath $remoteOnboardingHandover -Destination (Join-Path $output 'SERVER-REMOTE-ONBOARDING-HANDOVER.md') -Force
+Copy-Item -LiteralPath $retryHandover -Destination (Join-Path $output 'SERVER-ONBOARDING-RETRY-HANDOVER.md') -Force
+Copy-Item -LiteralPath $multicastHandover -Destination (Join-Path $output 'SERVER-MULTICAST-CONFIGURATION-HANDOVER.md') -Force
+Copy-Item -LiteralPath $multicast24Handover -Destination (Join-Path $output 'AGENT-MULTICAST-24-UPGRADE-HANDOVER.md') -Force
 Copy-Item -LiteralPath $testMachineHandover -Destination (Join-Path $output 'TEST-MACHINE-HANDOVER.md') -Force
 Copy-Item -LiteralPath $testMachineHandover -Destination (Join-Path $projectRoot 'artifacts\TEST-MACHINE-HANDOVER.md') -Force
 

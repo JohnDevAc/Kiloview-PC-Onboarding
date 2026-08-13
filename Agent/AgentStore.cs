@@ -12,7 +12,10 @@ internal static class AgentStore
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Kiloview",
         "PC Agent");
-    private static readonly string StatePath = Path.Combine(DirectoryPath, "agent-state.json");
+    private static string StatePath => Environment.GetEnvironmentVariable(
+        "KILOVIEW_AGENT_STATE_PATH") is { Length: > 0 } overridePath
+            ? Path.GetFullPath(overridePath)
+            : Path.Combine(DirectoryPath, "agent-state.json");
 
     public static AgentConfiguration? Read()
     {
@@ -36,15 +39,57 @@ internal static class AgentStore
         try
         {
             var current = Read() ?? throw new InvalidOperationException("The PC Agent is not configured.");
+            var memberships = current.Memberships
+                .Where(item => !string.Equals(
+                    item.ServerAddress,
+                    serverAddress,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             Write(current with
             {
                 UpdatedUtc = DateTimeOffset.UtcNow,
-                Memberships = current.Memberships
-                    .Where(item => !string.Equals(
-                        item.ServerAddress,
-                        serverAddress,
-                        StringComparison.OrdinalIgnoreCase))
-                    .ToArray()
+                Memberships = memberships,
+                Multicast = current.Multicast is not null
+                    && memberships.Any(item => string.Equals(
+                        item.JobName,
+                        current.Multicast.JobName,
+                        StringComparison.Ordinal))
+                            ? current.Multicast
+                            : null
+            });
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+    }
+
+    public static void SetMulticastAssociation(AgentMulticastAssociation? association)
+    {
+        using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(5)))
+            throw new IOException("The PC Agent configuration is currently in use.");
+        try
+        {
+            var current = Read() ?? throw new InvalidOperationException("The PC Agent is not configured.");
+            var normalizedJob = association?.JobName.Trim();
+            if (!string.IsNullOrWhiteSpace(normalizedJob)
+                && !current.Memberships.Any(item => string.Equals(
+                    item.JobName,
+                    normalizedJob,
+                    StringComparison.Ordinal)))
+                throw new InvalidOperationException(
+                    "Managed multicast can only be associated with an existing job membership.");
+            Write(current with
+            {
+                UpdatedUtc = DateTimeOffset.UtcNow,
+                Multicast = string.IsNullOrWhiteSpace(normalizedJob)
+                    ? null
+                    : association! with
+                    {
+                        JobName = normalizedJob,
+                        UpdatedUtc = DateTimeOffset.UtcNow
+                    }
             });
         }
         finally
@@ -55,7 +100,8 @@ internal static class AgentStore
 
     private static void Write(AgentConfiguration state)
     {
-        Directory.CreateDirectory(DirectoryPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)
+            ?? throw new InvalidOperationException("The PC Agent state directory could not be resolved."));
         var temporaryPath = StatePath + ".tmp";
         File.WriteAllText(temporaryPath, JsonSerializer.Serialize(state, Json));
         File.Move(temporaryPath, StatePath, true);

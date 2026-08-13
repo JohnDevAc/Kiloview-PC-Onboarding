@@ -8,12 +8,17 @@ internal sealed class AgentApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _tray;
     private readonly System.Windows.Forms.Timer _refreshTimer;
+    private readonly System.Windows.Forms.Timer _activationTimer;
+    private readonly WaitHandle _showStatusRequest;
     private readonly Control _dispatcher = new();
     private AgentConfiguration _configuration;
     private AgentNetworkHost? _networkHost;
+    private AgentStatusForm? _statusWindow;
+    private bool _remoteLaunchPending;
 
-    public AgentApplicationContext(Icon icon)
+    public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
     {
+        _showStatusRequest = showStatusRequest;
         _configuration = AgentStore.Read()
             ?? throw new InvalidOperationException(
                 "Kiloview PC Agent has not been configured. Run Kiloview PC Onboarding first.");
@@ -24,10 +29,17 @@ internal sealed class AgentApplicationContext : ApplicationContext
             Text = "Kiloview PC Agent",
             Visible = true
         };
-        _tray.DoubleClick += (_, _) => OpenStatusInBrowser();
+        _tray.DoubleClick += (_, _) => ShowStatusWindow();
         _refreshTimer = new System.Windows.Forms.Timer { Interval = 5000 };
         _refreshTimer.Tick += (_, _) => ReloadConfiguration();
         _refreshTimer.Start();
+        _activationTimer = new System.Windows.Forms.Timer { Interval = 250 };
+        _activationTimer.Tick += (_, _) =>
+        {
+            if (_showStatusRequest.WaitOne(0))
+                ShowStatusWindow();
+        };
+        _activationTimer.Start();
         BuildMenu();
         StartNetworkHost();
     }
@@ -36,7 +48,10 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         _refreshTimer.Stop();
         _refreshTimer.Dispose();
+        _activationTimer.Stop();
+        _activationTimer.Dispose();
         _networkHost?.Dispose();
+        _statusWindow?.Dispose();
         _tray.Visible = false;
         _tray.Dispose();
         _dispatcher.Dispose();
@@ -67,15 +82,18 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _networkHost = null;
         try
         {
-            _networkHost = new AgentNetworkHost(() => _configuration, ConfirmRemoteLaunchAsync);
+            _networkHost = new AgentNetworkHost(
+                () => _configuration,
+                ConfirmRemoteLaunchAsync,
+                launchApproved: LaunchApprovedRemoteOnboarding);
             _networkHost.Start();
-            _tray.Text = Truncate($"Kiloview PC Agent · {_configuration.Address}", 63);
+            _tray.Text = Truncate($"Kiloview PC Agent - {_configuration.Address}", 63);
         }
         catch (Exception ex)
         {
             _networkHost?.Dispose();
             _networkHost = null;
-            _tray.Text = "Kiloview PC Agent · network unavailable";
+            _tray.Text = "Kiloview PC Agent - network unavailable";
             _tray.ShowBalloonTip(
                 5000,
                 "Kiloview PC Agent",
@@ -88,12 +106,12 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem(
-            $"Online · {_configuration.AdapterName} · {_configuration.Address}/{_configuration.PrefixLength}")
+            $"Online - {_configuration.AdapterName} - {_configuration.Address}/{_configuration.PrefixLength}")
         {
             Enabled = false
         });
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Open agent status", null, (_, _) => OpenStatusInBrowser());
+        menu.Items.Add("Status", null, (_, _) => ShowStatusWindow());
 
         var memberships = new ToolStripMenuItem("Onboarded jobs");
         if (_configuration.Memberships.Count == 0)
@@ -106,13 +124,13 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 .OrderBy(item => item.JobName, StringComparer.OrdinalIgnoreCase))
             {
                 var server = new ToolStripMenuItem(
-                    $"{membership.JobName} · {membership.ServerAddress}");
+                    $"{membership.JobName} - {membership.ServerAddress}");
                 server.DropDownItems.Add(
                     "Open Job Configurator",
                     null,
                     (_, _) => OpenUrl(membership.BaseUri));
                 server.DropDownItems.Add(
-                    "Remove this PC from job…",
+                    "Remove this PC from job...",
                     null,
                     async (_, _) => await RemoveMembershipAsync(membership));
                 memberships.DropDownItems.Add(server);
@@ -141,14 +159,46 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2);
-            var launched = choice == DialogResult.Yes
-                && OpenRemoteOnboardingUtility(
+            if (choice != DialogResult.Yes)
+            {
+                completion.SetResult(false);
+                return;
+            }
+            if (_remoteLaunchPending)
+            {
+                MessageBox.Show(
+                    "Another remote onboarding request is already starting.",
+                    "Kiloview PC Agent",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                completion.SetResult(false);
+                return;
+            }
+
+            _remoteLaunchPending = true;
+            completion.SetResult(true);
+        });
+        return completion.Task;
+    }
+
+    private void LaunchApprovedRemoteOnboarding(OnboardingLaunchRequest request)
+    {
+        if (_dispatcher.IsDisposed)
+            return;
+        _dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                _ = OpenRemoteOnboardingUtility(
                     request.ConfiguratorUrl,
                     request.RemoteAddress,
                     _configuration.EndpointId);
-            completion.SetResult(launched);
+            }
+            finally
+            {
+                _remoteLaunchPending = false;
+            }
         });
-        return completion.Task;
     }
 
     private async Task RemoveMembershipAsync(AgentMembership membership)
@@ -199,8 +249,26 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
     }
 
-    private void OpenStatusInBrowser() => OpenUrl(
-        $"http://{_configuration.Address}:{AgentNetworkHost.ApiPort}/api/v1/status");
+    private void ShowStatusWindow()
+    {
+        if (_statusWindow is { IsDisposed: false })
+        {
+            _statusWindow.RefreshStatus();
+            if (_statusWindow.WindowState == FormWindowState.Minimized)
+                _statusWindow.WindowState = FormWindowState.Normal;
+            _statusWindow.Activate();
+            _statusWindow.BringToFront();
+            return;
+        }
+
+        _statusWindow = new AgentStatusForm(
+            _tray.Icon!,
+            () => _configuration,
+            () => _networkHost is not null);
+        _statusWindow.FormClosed += (_, _) => _statusWindow = null;
+        _statusWindow.Show();
+        _statusWindow.Activate();
+    }
 
     private static void OpenUrl(string address)
     {
@@ -218,7 +286,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         try
         {
-            var utility = Path.Combine(AppContext.BaseDirectory, "Kiloview PC Onboarding.exe");
+            var utility = ResolveOnboardingUtility();
             if (!File.Exists(utility))
                 throw new FileNotFoundException("The installed PC Onboarding utility was not found.", utility);
             var start = new ProcessStartInfo(utility)
@@ -243,6 +311,18 @@ internal sealed class AgentApplicationContext : ApplicationContext
             MessageBox.Show(ex.Message, "Kiloview PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
+    }
+
+    private static string ResolveOnboardingUtility()
+    {
+        var adjacent = Path.Combine(AppContext.BaseDirectory, "Kiloview PC Onboarding.exe");
+        if (File.Exists(adjacent))
+            return adjacent;
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "Kiloview",
+            "PC Agent",
+            "Kiloview PC Onboarding.exe");
     }
 
     private static HttpClient CreateBoundClient(string localAddress)
