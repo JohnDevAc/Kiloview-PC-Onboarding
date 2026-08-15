@@ -1,8 +1,8 @@
 using KiloviewPcOnboarding;
 
 var testRoot = Path.Combine(Path.GetTempPath(), $"Kiloview-Payload-{Guid.NewGuid():N}");
-var packagedAgent = Path.Combine(testRoot, "Agent", "Kiloview PC Agent.exe");
-var installedAgent = Path.Combine(testRoot, "Kiloview PC Agent.exe");
+var packagedAgent = Path.Combine(testRoot, "Agent", "NDI Configurator PC Agent.exe");
+var installedAgent = Path.Combine(testRoot, "NDI Configurator PC Agent.exe");
 
 try
 {

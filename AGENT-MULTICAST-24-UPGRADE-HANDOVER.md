@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Update the Kiloview PC Agent so it accepts and applies the Job Configurator's
+Update NDI Configurator PC Agent so it accepts and applies the Job Configurator's
 new per-sender `/24` multicast allocations. This document is a delta to
 `SERVER-MULTICAST-CONFIGURATION-HANDOVER.md` and supersedes that document's
 requirement for an exact `/28` mask.
@@ -164,7 +164,7 @@ The response and `GET /api/v1/status` must return the values read from disk:
 ```json
 {
   "schemaVersion": 1,
-  "product": "Kiloview PC Agent",
+  "product": "NDI Configurator PC Agent",
   "endpointId": "b0ea92d2-2746-4da4-addb-5d510f01c5d3",
   "mode": "multicast",
   "adapterId": "{A9A139E-474D-40E1-83...}",

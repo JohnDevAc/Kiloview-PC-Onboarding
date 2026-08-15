@@ -101,7 +101,7 @@ verified state. Do not return success from the requested values alone.
 ```json
 {
   "schemaVersion": 1,
-  "product": "Kiloview PC Agent",
+  "product": "NDI Configurator PC Agent",
   "endpointId": "b0ea92d2-2746-4da4-addb-5d510f01c5d3",
   "mode": "multicast",
   "adapterId": "{ADAPTER-GUID}",

@@ -10,8 +10,13 @@ internal static class AgentStore
     };
     private static readonly string DirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Kiloview",
+        "NDI Configurator",
         "PC Agent");
+    private static readonly string LegacyStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Kiloview",
+        "PC Agent",
+        "agent-state.json");
     private static string StatePath => Environment.GetEnvironmentVariable(
         "KILOVIEW_AGENT_STATE_PATH") is { Length: > 0 } overridePath
             ? Path.GetFullPath(overridePath)
@@ -21,9 +26,15 @@ internal static class AgentStore
     {
         try
         {
-            if (!File.Exists(StatePath))
+            var path = File.Exists(StatePath)
+                ? StatePath
+                : Environment.GetEnvironmentVariable("KILOVIEW_AGENT_STATE_PATH") is null
+                    && File.Exists(LegacyStatePath)
+                        ? LegacyStatePath
+                        : null;
+            if (path is null)
                 return null;
-            return JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(StatePath), Json);
+            return JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(path), Json);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {

@@ -14,7 +14,7 @@ internal sealed class AgentApiException(int statusCode, string message, Exceptio
 
 internal static class AgentMulticastService
 {
-    private const string Product = "Kiloview PC Agent";
+    private const string Product = "NDI Configurator PC Agent";
     private const string MulticastMask = "255.255.255.0";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -48,7 +48,7 @@ internal static class AgentMulticastService
             ? Path.GetFullPath(overridePath)
             : Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Kiloview",
+                "NDI Configurator",
                 "PC Agent",
                 "audit.jsonl");
 
@@ -268,9 +268,9 @@ internal static class AgentMulticastService
                     {
                         if (process.Id == Environment.ProcessId)
                             return false;
-                    return process.Modules.Cast<ProcessModule>().Any(module =>
-                        module.ModuleName.Contains("Processing.NDI", StringComparison.OrdinalIgnoreCase)
-                        || module.ModuleName.StartsWith("NDILib", StringComparison.OrdinalIgnoreCase));
+                        return process.Modules.Cast<ProcessModule>().Any(module =>
+                            module.ModuleName.Contains("Processing.NDI", StringComparison.OrdinalIgnoreCase)
+                            || module.ModuleName.StartsWith("NDILib", StringComparison.OrdinalIgnoreCase));
                     }
                     catch
                     {
@@ -320,7 +320,7 @@ internal static class AgentMulticastService
         var directory = Path.GetDirectoryName(ConfigPath)
             ?? throw new AgentApiException(500, "The NDI configuration directory could not be resolved.");
         Directory.CreateDirectory(directory);
-        var lockPath = Path.Combine(directory, ".kiloview-ndi-configuration.lock");
+        var lockPath = Path.Combine(directory, ".ndi-configurator-configuration.lock");
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while (true)
         {
@@ -373,7 +373,7 @@ internal static class AgentMulticastService
         var directory = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException("The NDI configuration directory could not be resolved.");
         Directory.CreateDirectory(directory);
-        var backup = path + ".kiloview-pc-agent-backup";
+        var backup = path + ".ndi-configurator-pc-agent-backup";
         var temporary = Path.Combine(
             directory,
             $".{Path.GetFileName(path)}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp");

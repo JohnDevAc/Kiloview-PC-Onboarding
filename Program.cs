@@ -18,7 +18,7 @@ internal static class Program
         {
             MessageBox.Show(
                 ex.Message,
-                "Kiloview PC Onboarding",
+                "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             return;
@@ -28,8 +28,8 @@ internal static class Program
             if (!ConsentStore.IsAccepted("1.0"))
             {
                 MessageBox.Show(
-                    "The Kiloview PC Onboarding EULA has not been accepted on this PC. Reinstall the PC Agent locally first.",
-                    "Kiloview PC Onboarding",
+                    "The NDI Configurator PC Agent EULA has not been accepted on this PC. Reinstall the agent locally first.",
+                    "NDI Configurator PC Agent Setup",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return;
@@ -48,9 +48,9 @@ internal static class Program
                 : AgentInstallationService.InstallOrUpdate(network);
             MessageBox.Show(
                 update.Installed
-                    ? "The PC Agent installation is up to date. Onboarding must be started remotely from Kiloview Job Configurator."
-                    : $"The PC Agent could not be updated.\n\n{update.Message}",
-                "Kiloview PC Onboarding",
+                    ? "The NDI Configurator PC Agent installation is up to date. Onboarding must be started remotely from Kiloview Job Configurator."
+                    : $"NDI Configurator PC Agent could not be updated.\n\n{update.Message}",
+                "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
                 update.Installed ? MessageBoxIcon.Information : MessageBoxIcon.Error);
             return;

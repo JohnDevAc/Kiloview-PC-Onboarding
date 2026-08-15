@@ -10,9 +10,9 @@ internal static class Program
     {
         var installedAgent = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            "Kiloview",
+            "NDI Configurator",
             "PC Agent",
-            "Kiloview PC Agent.exe");
+            "NDI Configurator PC Agent.exe");
         var runningAgent = Environment.ProcessPath;
         if (File.Exists(installedAgent)
             && runningAgent is not null

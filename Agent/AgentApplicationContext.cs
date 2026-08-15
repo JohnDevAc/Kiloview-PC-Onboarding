@@ -21,12 +21,12 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _showStatusRequest = showStatusRequest;
         _configuration = AgentStore.Read()
             ?? throw new InvalidOperationException(
-                "Kiloview PC Agent has not been configured. Run Kiloview PC Onboarding first.");
+                "NDI Configurator PC Agent has not been configured. Run NDI Configurator PC Agent Setup first.");
         _dispatcher.CreateControl();
         _tray = new NotifyIcon
         {
             Icon = icon,
-            Text = "Kiloview PC Agent",
+            Text = "NDI Configurator PC Agent",
             Visible = true
         };
         _tray.DoubleClick += (_, _) => ShowStatusWindow();
@@ -87,16 +87,16 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 ConfirmRemoteLaunchAsync,
                 launchApproved: LaunchApprovedRemoteOnboarding);
             _networkHost.Start();
-            _tray.Text = Truncate($"Kiloview PC Agent - {_configuration.Address}", 63);
+            _tray.Text = Truncate($"NDI Configurator PC Agent - {_configuration.Address}", 63);
         }
         catch (Exception ex)
         {
             _networkHost?.Dispose();
             _networkHost = null;
-            _tray.Text = "Kiloview PC Agent - network unavailable";
+            _tray.Text = "NDI Configurator PC Agent - network unavailable";
             _tray.ShowBalloonTip(
                 5000,
-                "Kiloview PC Agent",
+                "NDI Configurator PC Agent",
                 $"The selected interface could not be opened: {ex.Message}",
                 ToolTipIcon.Warning);
         }
@@ -155,7 +155,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
             var choice = MessageBox.Show(
                 $"{server} is requesting permission to apply centrally managed onboarding settings to this PC.{job}\n\n"
                 + "If approved, Windows will request administrator permission. NDI settings and the selected adapter's IPv4, gateway, and DNS settings may change.\n\nAllow this request?",
-                "Kiloview PC Agent",
+                "NDI Configurator PC Agent",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2);
@@ -168,7 +168,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
             {
                 MessageBox.Show(
                     "Another remote onboarding request is already starting.",
-                    "Kiloview PC Agent",
+                    "NDI Configurator PC Agent",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 completion.SetResult(false);
@@ -232,7 +232,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
             BuildMenu();
             _tray.ShowBalloonTip(
                 4000,
-                "Kiloview PC Agent",
+                "NDI Configurator PC Agent",
                 $"This PC was removed from {membership.JobName}.",
                 ToolTipIcon.Info);
         }
@@ -243,7 +243,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         {
             MessageBox.Show(
                 $"The PC could not be removed from {membership.JobName}.\n\n{ex.Message}",
-                "Kiloview PC Agent",
+                "NDI Configurator PC Agent",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -275,7 +275,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         try { Process.Start(new ProcessStartInfo(address) { UseShellExecute = true }); }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Kiloview PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -288,7 +288,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         {
             var utility = ResolveOnboardingUtility();
             if (!File.Exists(utility))
-                throw new FileNotFoundException("The installed PC Onboarding utility was not found.", utility);
+                throw new FileNotFoundException("The installed NDI Configurator PC Agent Setup utility was not found.", utility);
             var start = new ProcessStartInfo(utility)
             {
                 UseShellExecute = true,
@@ -308,16 +308,23 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "Kiloview PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
     }
 
     private static string ResolveOnboardingUtility()
     {
-        var adjacent = Path.Combine(AppContext.BaseDirectory, "Kiloview PC Onboarding.exe");
+        var adjacent = Path.Combine(AppContext.BaseDirectory, "NDI Configurator PC Agent Setup.exe");
         if (File.Exists(adjacent))
             return adjacent;
+        var installed = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "NDI Configurator",
+            "PC Agent",
+            "NDI Configurator PC Agent Setup.exe");
+        if (File.Exists(installed))
+            return installed;
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             "Kiloview",

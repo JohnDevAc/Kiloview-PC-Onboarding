@@ -2,7 +2,7 @@
 
 ## Objective
 
-Update Kiloview Job Configurator so an installed `Kiloview PC Agent` can be
+Update Kiloview Job Configurator so an installed `NDI Configurator PC Agent` can be
 onboarded only through a locally approved remote request. The agent continues to
 run unelevated. A Windows user must accept a visible Yes/No prompt before the
 agent launches the installed onboarding utility with UAC. The elevated utility
@@ -36,6 +36,10 @@ Continue sending the exact UTF-8 UDP query
 Only show the new remote-onboarding action when both `remote-onboarding-v2` and
 `network-config-v1` are present. Do not invoke the legacy local UI for an older
 agent; show **PC Agent update required** instead.
+
+Rebranded agents return `product: "NDI Configurator PC Agent"`. During rollout,
+accept the legacy value `Kiloview PC Agent` as well, but display only the new
+name. Continue using `endpointId` rather than product text as the stable identity.
 
 `GET http://PC_ADDRESS:8094/api/v1/status` now includes current selected-adapter
 information suitable for pre-populating the server UI:

@@ -8,14 +8,14 @@ internal sealed class EulaForm : Form
     {
         UiTheme.ConfigureForm(this);
         Icon = icon;
-        Text = "Kiloview PC Onboarding — End User Licence Agreement";
+        Text = "NDI Configurator PC Agent — End User Licence Agreement";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(560, 380);
         Size = new Size(700, 460);
         BackColor = UiTheme.Background;
         ForeColor = UiTheme.Text;
 
-        var title = UiTheme.Label("Kiloview PC Onboarding", 20, true);
+        var title = UiTheme.Label("NDI Configurator PC Agent", 20, true);
         var subtitle = UiTheme.Label("Review and accept the licence before configuring this Windows PC.", 10);
         subtitle.ForeColor = UiTheme.Muted;
         var header = new FlowLayoutPanel
@@ -45,7 +45,7 @@ internal sealed class EulaForm : Form
         var accept = new CheckBox
         {
             AutoSize = true,
-            Text = "I have read and accept the Kiloview PC Onboarding Utility EULA.",
+            Text = "I have read and accept the NDI Configurator PC Agent EULA.",
             ForeColor = UiTheme.Text,
             Padding = new Padding(0, 5, 0, 0)
         };

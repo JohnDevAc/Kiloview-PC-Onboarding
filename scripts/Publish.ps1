@@ -61,9 +61,16 @@ Copy-Item -LiteralPath $multicast24Handover -Destination (Join-Path $output 'AGE
 Copy-Item -LiteralPath $testMachineHandover -Destination (Join-Path $output 'TEST-MACHINE-HANDOVER.md') -Force
 Copy-Item -LiteralPath $testMachineHandover -Destination (Join-Path $projectRoot 'artifacts\TEST-MACHINE-HANDOVER.md') -Force
 
-$archive = Join-Path $projectRoot "artifacts\Kiloview-PC-Onboarding-$variant.zip"
+$archive = Join-Path $projectRoot "artifacts\NDI-Configurator-PC-Agent-$variant.zip"
+$legacyArchive = Join-Path $projectRoot "artifacts\Kiloview-PC-Onboarding-$variant.zip"
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force
+}
+if (Test-Path -LiteralPath $legacyArchive) {
+    Remove-Item -LiteralPath $legacyArchive -Force
+}
+if (Test-Path -LiteralPath "$legacyArchive.sha256") {
+    Remove-Item -LiteralPath "$legacyArchive.sha256" -Force
 }
 Compress-Archive -Path (Join-Path $output '*') -DestinationPath $archive -CompressionLevel Optimal
 
@@ -71,6 +78,6 @@ $archiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
 $checksumPath = "$archive.sha256"
 Set-Content -LiteralPath $checksumPath -Value "$archiveHash  $(Split-Path -Leaf $archive)" -Encoding ascii
 
-Write-Host "PC onboarding utility published to $output"
+Write-Host "NDI Configurator PC Agent Setup published to $output"
 Write-Host "Distribution package created at $archive"
 Write-Host "Checksum manifest created at $checksumPath"

@@ -22,7 +22,7 @@ internal sealed class AgentStatusForm : Form
         _configuration = configuration;
         _networkAvailable = networkAvailable;
 
-        Text = "Kiloview PC Agent Status";
+        Text = "NDI Configurator PC Agent Status";
         Icon = icon;
         AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(540, 455);
@@ -108,7 +108,7 @@ internal sealed class AgentStatusForm : Form
             Font = new Font("Segoe UI Semibold", 16F),
             ForeColor = Color.FromArgb(25, 48, 56),
             Location = new Point(24, 18),
-            Text = "PC Agent status"
+            Text = "NDI Configurator PC Agent"
         };
         _summary.AutoSize = true;
         _summary.Font = new Font("Segoe UI", 10F);

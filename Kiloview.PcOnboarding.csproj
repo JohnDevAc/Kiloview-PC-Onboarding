@@ -6,10 +6,10 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>Kiloview PC Onboarding</AssemblyName>
+    <AssemblyName>NDI Configurator PC Agent Setup</AssemblyName>
     <RootNamespace>KiloviewPcOnboarding</RootNamespace>
-    <AssemblyTitle>Kiloview PC Onboarding Utility</AssemblyTitle>
-    <Description>Bootstrap the Kiloview PC Agent and apply locally approved remote onboarding settings.</Description>
+    <AssemblyTitle>NDI Configurator PC Agent Setup</AssemblyTitle>
+    <Description>Install the NDI Configurator PC Agent and apply locally approved remote onboarding settings.</Description>
     <ApplicationIcon>assets\KiloviewSetup.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <InvariantGlobalization>true</InvariantGlobalization>

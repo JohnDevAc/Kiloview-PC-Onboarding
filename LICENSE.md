@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding Utility End User License Agreement (EULA)
+# NDI Configurator PC Agent End User License Agreement (EULA)
 
 Proprietary Non-Commercial No-Derivatives License
 

@@ -21,7 +21,7 @@ internal sealed partial class NdiToolsService
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Kiloview-PC-Onboarding", UtilityVersion()));
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("NDI-Configurator-PC-Agent", UtilityVersion()));
             var html = await client.GetStringAsync(ToolsPage, ct);
             var match = VersionPattern().Match(html);
             if (match.Success) Version.TryParse(match.Groups[1].Value, out currentVersion);
@@ -49,7 +49,7 @@ internal sealed partial class NdiToolsService
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
-            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Kiloview-PC-Onboarding", UtilityVersion()));
+            client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("NDI-Configurator-PC-Agent", UtilityVersion()));
             using var response = await client.GetAsync(WindowsInstaller, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
             if (!string.Equals(response.RequestMessage?.RequestUri?.Host, "downloads.ndi.tv", StringComparison.OrdinalIgnoreCase))

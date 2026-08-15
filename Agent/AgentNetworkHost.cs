@@ -98,7 +98,7 @@ internal sealed class AgentNetworkHost : IDisposable
                 var response = JsonSerializer.SerializeToUtf8Bytes(new
                 {
                     schemaVersion = 1,
-                    product = "Kiloview PC Agent",
+                    product = "NDI Configurator PC Agent",
                     agentVersion = AgentMonitor.Version(),
                     endpointId = state.EndpointId,
                     hostname = Environment.MachineName,
@@ -321,7 +321,7 @@ internal sealed class AgentNetworkHost : IDisposable
             await WriteJsonAsync(client, 200, new
             {
                 status = "ok",
-                product = "Kiloview PC Agent",
+                product = "NDI Configurator PC Agent",
                 version = AgentMonitor.Version(),
                 schemaVersion = 1
             }, ct);

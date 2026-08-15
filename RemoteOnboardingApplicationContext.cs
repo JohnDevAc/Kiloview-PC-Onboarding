@@ -33,7 +33,7 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
                 $"This PC was onboarded successfully to {result.JobName}.\n\n{network}"
                 + "\nNDI interface, group, and discovery settings were applied."
                 + ndi,
-                "Kiloview PC Onboarding complete",
+                "NDI Configurator PC Agent setup complete",
                 MessageBoxButtons.OK,
                 result.NdiUpdateRequired ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
         }
@@ -41,7 +41,7 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
         {
             MessageBox.Show(
                 $"Remote onboarding did not complete.\n\n{ex.Message}",
-                "Kiloview PC Onboarding",
+                "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }

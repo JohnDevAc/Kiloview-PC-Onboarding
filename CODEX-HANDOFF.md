@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding 0.4.0 developer handoff
+# NDI Configurator PC Agent 0.5.0-dev.1 developer handoff
 
 ## Current workflow
 
@@ -38,7 +38,7 @@ Agent discovery advertises `remote-onboarding-v2` and `network-config-v1`.
 Status includes DHCP state, IPv4 gateways, and IPv4 DNS servers for the selected
 adapter. The existing registration and deletion endpoints remain unchanged.
 
-Version `0.4.0` advertises `multicast-config-v1`. An authorized
+Version `0.5.0-dev.1` advertises `multicast-config-v1`. An authorized
 existing membership can apply or revert its NDI Access Manager multicast state
 through `PUT /api/v1/multicast/configuration` without UAC. The agent validates
 the endpoint, adapter, source membership, job, organization-local aligned `/24`
@@ -53,6 +53,12 @@ The agent also prevents non-installed workspace/package copies from
 holding the single-instance lock. Such launches redirect to the Program Files
 agent, and remote onboarding resolves the installed utility as a fallback.
 
+The rebrand migrates earlier Kiloview-branded state and endpoint identity to
+`%LocalAppData%\NDI Configurator\PC Agent`, installs beneath
+`%ProgramFiles%\NDI Configurator\PC Agent`, replaces the old HKCU startup value
+and branded firewall rules, and advertises product `NDI Configurator PC Agent`.
+The discovery query remains `KILOVIEW_PC_AGENT_DISCOVER_V1` for wire compatibility.
+
 ## Build and validation
 
 ```powershell
@@ -65,6 +71,16 @@ dotnet run --project .\tests\Kiloview.PcAgent.Validation\Kiloview.PcAgent.Valida
 
 The agent validation host uses ephemeral ports so it can run while an installed
 tray agent owns production ports 8093/8094.
+
+Current local packages:
+
+- `artifacts/NDI-Configurator-PC-Agent-win-x64.zip` — 126.999 MB,
+  SHA-256 `28D3C311657B4CFBC3CDFC1302869773606B32E1E001640BAC93B2FE232169C2`
+- `artifacts/NDI-Configurator-PC-Agent-win-x64-framework-dependent.zip` —
+  0.870 MB, SHA-256
+  `D3D59BEC27726F46715232E12FC6C1366CF24BB0D343D4E08E2F159CB4FA3B4B`
+
+Each archive has an adjacent `.sha256` manifest.
 
 ## Safety invariants
 

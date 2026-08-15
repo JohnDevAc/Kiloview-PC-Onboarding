@@ -31,7 +31,7 @@ internal static partial class AgentMonitor
         return new
         {
             schemaVersion = 1,
-            product = "Kiloview PC Agent",
+            product = "NDI Configurator PC Agent",
             agentVersion = Version(),
             status = "online",
             endpointId = configuration.EndpointId,

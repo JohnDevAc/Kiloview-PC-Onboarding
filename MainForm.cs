@@ -23,7 +23,7 @@ internal sealed class MainForm : Form
     {
         UiTheme.ConfigureForm(this);
         Icon = icon;
-        Text = "Kiloview PC Onboarding";
+        Text = "NDI Configurator PC Agent Setup";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(520, 360);
         Size = new Size(900, 620);
@@ -47,7 +47,7 @@ internal sealed class MainForm : Form
 
     private Control BuildHeader()
     {
-        var title = UiTheme.Label("Onboard this Windows PC", 22, true);
+        var title = UiTheme.Label("NDI Configurator PC Agent", 22, true);
         var subtitle = UiTheme.Label(
             "Select the production network and install the agent. Job onboarding is then initiated remotely.",
             10);
@@ -128,7 +128,7 @@ internal sealed class MainForm : Form
             _ndiAction,
             NdiControls(),
             new Padding(7, 0, 0, 14)), 1, 0);
-        var server = Panel("03", "Kiloview job", _jobActivity, _scan, ServerControls(), Padding.Empty);
+        var server = Panel("03", "Job Configurator", _jobActivity, _scan, ServerControls(), Padding.Empty);
         body.Controls.Add(server, 0, 1);
         body.SetColumnSpan(server, 2);
         return body;
@@ -342,7 +342,7 @@ internal sealed class MainForm : Form
             // Agent installation is independent of NDI Tools availability. Remote
             // onboarding reports missing or outdated NDI Tools after applying settings.
             {
-                _serverStatus.Text = "Installing or updating the Kiloview PC Agent…";
+                _serverStatus.Text = "Installing or updating NDI Configurator PC Agent…";
                 _agentInstallation = await Task.Run(
                     () => AgentInstallationService.InstallOrUpdate(network),
                     token);
@@ -388,7 +388,7 @@ internal sealed class MainForm : Form
             if (_agentInstallation is { Installed: false })
                 _serverStatus.Text = $"WARNING: {_agentInstallation.Message} {_serverStatus.Text}";
             else if (_agentInstallation is { Installed: true })
-                _serverStatus.Text = $"PC Agent ready. Start onboarding from Job Configurator. {_serverStatus.Text}";
+                _serverStatus.Text = $"NDI Configurator PC Agent ready. Start onboarding from Job Configurator. {_serverStatus.Text}";
             _serverStatus.ForeColor = displayedServers.Length == 0
                 || _agentInstallation is { Installed: false }
                     ? UiTheme.Amber
@@ -432,7 +432,7 @@ internal sealed class MainForm : Form
             activity.State = ActivityState.Error;
             _serverStatus.ForeColor = UiTheme.Red;
             _serverStatus.Text = ex.Message;
-            MessageBox.Show(this, ex.Message, "Kiloview PC Onboarding", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(this, ex.Message, "NDI Configurator PC Agent Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {

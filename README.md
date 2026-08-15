@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding Utility
+# NDI Configurator PC Agent
 
 This package bootstraps an unelevated Windows tray agent. After the agent is
 installed, onboarding is remote-only: Kiloview Job Configurator requests local
@@ -9,20 +9,24 @@ does not expose or start a local onboarding workflow.
 
 ## Bootstrap installation
 
-Run `Kiloview PC Onboarding.exe` from the complete package and approve UAC. The
+Run `NDI Configurator PC Agent Setup.exe` from the complete package and approve UAC. The
 bootstrap UI:
 
 1. records EULA acceptance;
 2. selects the production IPv4 adapter;
 3. reports installed/current NDI Tools state without making it a prerequisite;
-4. installs `Kiloview PC Agent` beneath `%ProgramFiles%\Kiloview\PC Agent`;
-5. records the adapter beneath `%LocalAppData%\Kiloview\PC Agent`;
+4. installs `NDI Configurator PC Agent` beneath `%ProgramFiles%\NDI Configurator\PC Agent`;
+5. records the adapter beneath `%LocalAppData%\NDI Configurator\PC Agent`;
 6. creates an HKCU startup entry; and
 7. creates subnet-scoped inbound UDP 8093 and TCP 8094 firewall rules.
 
 The bootstrap UI cannot join or update a job. Once agent state exists, launching
 the utility normally displays a message directing the user to start onboarding
 from Job Configurator.
+
+Upgrading an earlier Kiloview-branded installation preserves its endpoint ID,
+memberships, adapter selection, and EULA acceptance. Setup replaces the old
+startup entry and branded firewall rules so a second agent is not created.
 
 ## Remote onboarding
 

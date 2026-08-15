@@ -16,10 +16,13 @@ internal static class AgentInstallationService
 {
     internal const int DiscoveryPort = 8093;
     internal const int ApiPort = 8094;
-    internal const string DiscoveryRuleName = "Kiloview PC Agent - Discovery";
-    internal const string ApiRuleName = "Kiloview PC Agent - Monitoring";
+    internal const string DiscoveryRuleName = "NDI Configurator PC Agent - Discovery";
+    internal const string ApiRuleName = "NDI Configurator PC Agent - Monitoring";
+    private const string LegacyDiscoveryRuleName = "Kiloview PC Agent - Discovery";
+    private const string LegacyApiRuleName = "Kiloview PC Agent - Monitoring";
     private const string LegacyPingRuleName = "Kiloview PC Onboarding - ICMPv4 Echo";
-    private const string RunValueName = "Kiloview PC Agent";
+    private const string RunValueName = "NDI Configurator PC Agent";
+    private const string LegacyRunValueName = "Kiloview PC Agent";
     private const int InboundDirection = 1;
     private const int AllowAction = 1;
     private const int AllProfiles = int.MaxValue;
@@ -30,19 +33,31 @@ internal static class AgentInstallationService
 
     private static readonly string InstallDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+        "NDI Configurator",
+        "PC Agent");
+    private static readonly string LegacyInstallDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
         "Kiloview",
         "PC Agent");
     private static readonly string InstalledAgentPath = Path.Combine(
         InstallDirectory,
-        "Kiloview PC Agent.exe");
+        "NDI Configurator PC Agent.exe");
     private static readonly string InstalledUtilityPath = Path.Combine(
         InstallDirectory,
-        "Kiloview PC Onboarding.exe");
+        "NDI Configurator PC Agent Setup.exe");
+    private static readonly string LegacyInstalledAgentPath = Path.Combine(
+        LegacyInstallDirectory,
+        "Kiloview PC Agent.exe");
     private static readonly string StateDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Kiloview",
+        "NDI Configurator",
         "PC Agent");
     private static readonly string StatePath = Path.Combine(StateDirectory, "agent-state.json");
+    private static readonly string LegacyStatePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Kiloview",
+        "PC Agent",
+        "agent-state.json");
 
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice network)
     {
@@ -52,13 +67,14 @@ internal static class AgentInstallationService
             return new(
                 false,
                 false,
-                "The PC Agent payload is missing. Run PC Onboarding from its complete release package.");
+                "The NDI Configurator PC Agent payload is missing. Run Setup from its complete release package.");
         }
 
         try
         {
             Directory.CreateDirectory(InstallDirectory);
             Directory.CreateDirectory(StateDirectory);
+            MigrateLegacyState();
             var agentChanged = !PublishedFilesMatch(
                 Path.GetDirectoryName(sourceAgent)!,
                 Path.GetFileNameWithoutExtension(sourceAgent));
@@ -82,18 +98,21 @@ internal static class AgentInstallationService
             UpdateConfiguration(network, null);
             ConfigureStartup();
             ConfigureLanRules(network);
+            RemoveFirewallRule(LegacyDiscoveryRuleName);
+            RemoveFirewallRule(LegacyApiRuleName);
             RemoveFirewallRule(LegacyPingRuleName);
+            StopLegacyAgent();
             var started = StartAgentIfNeeded();
             return new(
                 true,
                 started,
                 started
-                    ? $"PC Agent installed · discovery UDP {DiscoveryPort} · monitoring TCP {ApiPort}"
-                    : "PC Agent installed and will start at the next user logon.");
+                    ? $"NDI Configurator PC Agent installed · discovery UDP {DiscoveryPort} · monitoring TCP {ApiPort}"
+                    : "NDI Configurator PC Agent installed and will start at the next user logon.");
         }
         catch (Exception ex)
         {
-            return new(false, false, $"PC Agent installation failed: {ex.Message}");
+            return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}");
         }
     }
 
@@ -110,7 +129,8 @@ internal static class AgentInstallationService
                 state.PrefixLength);
     }
 
-    public static bool IsConfigured() => ReadState() is not null && File.Exists(InstalledAgentPath);
+    public static bool IsConfigured() => ReadState() is not null
+        && (File.Exists(InstalledAgentPath) || File.Exists(LegacyInstalledAgentPath));
 
     public static void RecordMembership(
         NetworkChoice network,
@@ -175,8 +195,11 @@ internal static class AgentInstallationService
     {
         try
         {
-            return File.Exists(StatePath)
-                ? JsonSerializer.Deserialize<AgentState>(File.ReadAllText(StatePath), Json)
+            var path = File.Exists(StatePath)
+                ? StatePath
+                : LegacyStatePath;
+            return File.Exists(path)
+                ? JsonSerializer.Deserialize<AgentState>(File.ReadAllText(path), Json)
                 : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -191,8 +214,8 @@ internal static class AgentInstallationService
     {
         var candidates = new[]
         {
-            Path.Combine(baseDirectory, "Agent", "Kiloview PC Agent.exe"),
-            Path.Combine(baseDirectory, "Kiloview PC Agent.exe"),
+            Path.Combine(baseDirectory, "Agent", "NDI Configurator PC Agent.exe"),
+            Path.Combine(baseDirectory, "NDI Configurator PC Agent.exe"),
             Path.Combine(
                 baseDirectory,
                 "..",
@@ -204,7 +227,7 @@ internal static class AgentInstallationService
                 "Release",
                 "net8.0-windows",
                 "win-x64",
-                "Kiloview PC Agent.exe")
+                "NDI Configurator PC Agent.exe")
         };
         return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
     }
@@ -216,6 +239,23 @@ internal static class AgentInstallationService
             writable: true)
             ?? throw new InvalidOperationException("The Windows startup registry key could not be opened.");
         run.SetValue(RunValueName, $"\"{InstalledAgentPath}\"", RegistryValueKind.String);
+        run.DeleteValue(LegacyRunValueName, throwOnMissingValue: false);
+    }
+
+    private static void MigrateLegacyState()
+    {
+        using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(5)))
+            throw new IOException("The PC Agent configuration is currently in use.");
+        try
+        {
+            if (!File.Exists(StatePath) && File.Exists(LegacyStatePath))
+                File.Copy(LegacyStatePath, StatePath, overwrite: false);
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
     }
 
     private static void ConfigureLanRules(NetworkChoice network)
@@ -354,7 +394,7 @@ internal static class AgentInstallationService
         return false;
     }
 
-    private static bool IsAgentRunning() => Process.GetProcessesByName("Kiloview PC Agent")
+    private static bool IsAgentRunning() => Process.GetProcessesByName("NDI Configurator PC Agent")
         .Any(process =>
         {
             using (process)
@@ -375,7 +415,17 @@ internal static class AgentInstallationService
 
     private static void StopInstalledAgent()
     {
-        foreach (var process in Process.GetProcessesByName("Kiloview PC Agent"))
+        StopAgentProcesses("NDI Configurator PC Agent", InstalledAgentPath);
+    }
+
+    private static void StopLegacyAgent()
+    {
+        StopAgentProcesses("Kiloview PC Agent", LegacyInstalledAgentPath);
+    }
+
+    private static void StopAgentProcesses(string processName, string expectedPath)
+    {
+        foreach (var process in Process.GetProcessesByName(processName))
         {
             using (process)
             {
@@ -383,7 +433,7 @@ internal static class AgentInstallationService
                 {
                     if (!string.Equals(
                         process.MainModule?.FileName,
-                        InstalledAgentPath,
+                        expectedPath,
                         StringComparison.OrdinalIgnoreCase))
                         continue;
                     process.Kill();

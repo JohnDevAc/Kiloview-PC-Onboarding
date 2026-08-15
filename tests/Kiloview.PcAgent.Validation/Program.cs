@@ -99,6 +99,9 @@ using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
 var discovery = await udp.ReceiveAsync(timeout.Token);
 using var discoveryJson = JsonDocument.Parse(discovery.Buffer);
 Require(
+    discoveryJson.RootElement.GetProperty("product").GetString() == "NDI Configurator PC Agent",
+    "Discovery product identity did not match.");
+Require(
     discoveryJson.RootElement.GetProperty("endpointId").GetString() == configuration.EndpointId,
     "Discovery endpoint identity did not match.");
 Require(
@@ -129,7 +132,7 @@ using var health = await client.GetAsync(
 health.EnsureSuccessStatusCode();
 using var healthJson = JsonDocument.Parse(await health.Content.ReadAsByteArrayAsync());
 Require(
-    healthJson.RootElement.GetProperty("product").GetString() == "Kiloview PC Agent",
+    healthJson.RootElement.GetProperty("product").GetString() == "NDI Configurator PC Agent",
     "Health product identity did not match.");
 
 using var status = await client.GetAsync(

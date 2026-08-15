@@ -1,4 +1,4 @@
-# Kiloview PC Onboarding: remote-only acceptance handover
+# NDI Configurator PC Agent: remote-only acceptance handover
 
 ## Scope
 
@@ -15,14 +15,14 @@ could strand a production PC.
 
 Prefer the self-contained package:
 
-- `Kiloview-PC-Onboarding-win-x64.zip`
-- `Kiloview-PC-Onboarding-win-x64.zip.sha256`
+- `NDI-Configurator-PC-Agent-win-x64.zip`
+- `NDI-Configurator-PC-Agent-win-x64.zip.sha256`
 
 The archive must contain:
 
 ```text
-Kiloview PC Onboarding.exe
-Agent\Kiloview PC Agent.exe
+NDI Configurator PC Agent Setup.exe
+Agent\NDI Configurator PC Agent.exe
 README.md
 SERVER-REMOTE-ONBOARDING-HANDOVER.md
 SERVER-ONBOARDING-RETRY-HANDOVER.md
@@ -35,10 +35,10 @@ LICENSE.md
 Verify and extract from PowerShell:
 
 ```powershell
-$expected = (Get-Content .\Kiloview-PC-Onboarding-win-x64.zip.sha256).Split(' ')[0]
-$actual = (Get-FileHash -Algorithm SHA256 .\Kiloview-PC-Onboarding-win-x64.zip).Hash
+$expected = (Get-Content .\NDI-Configurator-PC-Agent-win-x64.zip.sha256).Split(' ')[0]
+$actual = (Get-FileHash -Algorithm SHA256 .\NDI-Configurator-PC-Agent-win-x64.zip).Hash
 if ($actual -ne $expected) { throw 'Package checksum mismatch' }
-Expand-Archive .\Kiloview-PC-Onboarding-win-x64.zip .\Kiloview-PC-Onboarding-test
+Expand-Archive .\NDI-Configurator-PC-Agent-win-x64.zip .\NDI-Configurator-PC-Agent-test
 ```
 
 ## Baseline
@@ -53,11 +53,11 @@ Do not publish the agent `endpointId` outside the test report.
 
 ## Bootstrap acceptance
 
-1. Run the packaged `Kiloview PC Onboarding.exe` and approve UAC.
+1. Run the packaged `NDI Configurator PC Agent Setup.exe` and approve UAC.
 2. Accept the EULA on first use.
 3. Select the intended production adapter.
 4. Confirm the agent installs even when NDI Tools is missing or outdated.
-5. Confirm the UI reports `PC Agent ready` and directs onboarding to Job
+5. Confirm the UI reports `NDI Configurator PC Agent ready` and directs onboarding to Job
    Configurator. It must not provide an enabled local onboard/update action.
 6. Confirm the tray agent appears without another UAC prompt and runs
    unelevated. Remote onboarding must be the operation that requests elevation.
@@ -67,13 +67,17 @@ Do not publish the agent `endpointId` outside the test report.
    it updates the installed binaries but still does not expose local onboarding.
 9. Confirm double-clicking the tray icon opens read-only status and the tray menu
    has no **Open PC Onboarding** action.
+10. On a PC with the previous Kiloview-branded release, record its endpoint ID,
+    memberships, and adapter selection before running the new Setup. Confirm the
+    values are preserved, only the `NDI Configurator PC Agent` startup entry
+    remains, and the old tray process does not remain running.
 
 Verify installed state:
 
 ```powershell
-Get-ChildItem "$env:ProgramFiles\Kiloview\PC Agent"
-Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'Kiloview PC Agent'
-Get-Content "$env:LocalAppData\Kiloview\PC Agent\agent-state.json"
+Get-ChildItem "$env:ProgramFiles\NDI Configurator\PC Agent"
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'NDI Configurator PC Agent'
+Get-Content "$env:LocalAppData\NDI Configurator\PC Agent\agent-state.json"
 ```
 
 ## Firewall and agent API
@@ -81,7 +85,9 @@ Get-Content "$env:LocalAppData\Kiloview\PC Agent\agent-state.json"
 From elevated PowerShell, verify inbound UDP 8093 and TCP 8094 rules are enabled,
 allow, bound to the selected local address, and restricted to the selected subnet
 on all profiles. `RemoteAddress` must never be `Any`. The obsolete branded ICMP
-rule must be absent.
+rule and the earlier `Kiloview PC Agent` discovery/monitoring rules must be absent.
+The active rules must be named `NDI Configurator PC Agent - Discovery` and
+`NDI Configurator PC Agent - Monitoring`.
 
 From the Configurator PC, verify discovery advertises:
 
@@ -93,6 +99,10 @@ remote-onboarding-v2
 network-config-v1
 multicast-config-v1
 ```
+
+The discovery and health payloads must report product
+`NDI Configurator PC Agent`. Job Configurator may accept the earlier product
+value during migration but must display the new name.
 
 Verify `/api/v1/status` includes selected adapter ID/address/prefix plus
 `networkConfiguration.dhcpEnabled`, `defaultGateways`, and `dnsServers`, plus
@@ -184,7 +194,7 @@ If testing removal, use only the disposable job. Confirm successful server
 deletion removes local membership but leaves the agent and NDI settings. When the
 server is unavailable, removal must fail visibly and retain local membership.
 
-No Kiloview Windows service or scheduled task may exist.
+No NDI Configurator PC Agent Windows service or scheduled task may exist.
 
 ## Evidence
 

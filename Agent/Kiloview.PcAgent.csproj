@@ -6,10 +6,10 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>Kiloview PC Agent</AssemblyName>
+    <AssemblyName>NDI Configurator PC Agent</AssemblyName>
     <RootNamespace>KiloviewPcAgent</RootNamespace>
-    <Product>Kiloview PC Agent</Product>
-    <AssemblyTitle>Kiloview PC Agent</AssemblyTitle>
+    <Product>NDI Configurator PC Agent</Product>
+    <AssemblyTitle>NDI Configurator PC Agent</AssemblyTitle>
     <Description>Tray agent for discovery, monitoring, remote onboarding, and managed NDI multicast.</Description>
     <ApplicationIcon>..\assets\KiloviewSetup.ico</ApplicationIcon>
     <ApplicationManifest>agent.manifest</ApplicationManifest>
