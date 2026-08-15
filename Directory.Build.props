@@ -2,9 +2,9 @@
   <PropertyGroup>
     <Product>NDI Configurator PC Agent</Product>
     <Company>John Lightfoot</Company>
-    <Version>0.5.0-dev.1</Version>
+    <Version>0.5.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-    <ReleaseChannel>Development</ReleaseChannel>
+    <ReleaseChannel>Production</ReleaseChannel>
     <Copyright>Copyright © 2026 John Lightfoot. All rights reserved.</Copyright>
   </PropertyGroup>
 </Project>
