@@ -17,7 +17,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out dev
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -35,8 +35,8 @@ jobs:
             throw "dev releases require ReleaseChannel=Development. Found '$channel'."
           }
           $tag = "v$version"
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $releases = @(gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName | ConvertFrom-Json)
+          if ($releases.tagName -contains $tag) {
             throw "Release $tag already exists. Increment Directory.Build.props before deploying dev."
           }
           "version=$version" >> $env:GITHUB_OUTPUT
@@ -45,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
