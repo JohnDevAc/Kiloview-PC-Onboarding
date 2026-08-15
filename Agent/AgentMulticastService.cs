@@ -246,14 +246,7 @@ internal static class AgentMulticastService
                 {
                     if (process.Id == Environment.ProcessId)
                         return false;
-                    return process.ProcessName.Equals("Application.NdiGroupEditor", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("Access Manager", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("NDI Access Manager", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("Application.Network.StudioMonitor.x64", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("Application.Network.StudioMonitor.x86", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("NDI Studio Monitor", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("Application.NDI.DiscoveryService.UI", StringComparison.OrdinalIgnoreCase)
-                        || process.ProcessName.Equals("NDI Discovery Service", StringComparison.OrdinalIgnoreCase);
+                    return IsBlockingNdiProcessName(process.ProcessName);
                 }
                 catch
                 {
@@ -266,7 +259,8 @@ internal static class AgentMulticastService
                 {
                     try
                     {
-                        if (process.Id == Environment.ProcessId)
+                        if (process.Id == Environment.ProcessId
+                            || IsNonBlockingNdiBackgroundProcessName(process.ProcessName))
                             return false;
                         return process.Modules.Cast<ProcessModule>().Any(module =>
                             module.ModuleName.Contains("Processing.NDI", StringComparison.OrdinalIgnoreCase)
@@ -289,6 +283,18 @@ internal static class AgentMulticastService
                 process.Dispose();
         }
     }
+
+    internal static bool IsBlockingNdiProcessName(string processName) =>
+        processName.Equals("Application.NdiGroupEditor", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("Access Manager", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("NDI Access Manager", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("Application.Network.StudioMonitor.x64", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("Application.Network.StudioMonitor.x86", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("NDI Studio Monitor", StringComparison.OrdinalIgnoreCase)
+        || processName.Equals("Application.NDI.DiscoveryService.UI", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsNonBlockingNdiBackgroundProcessName(string processName) =>
+        processName.Equals("NDI Discovery Service", StringComparison.OrdinalIgnoreCase);
 
     private static JsonObject ReadConfiguration()
     {

@@ -505,6 +505,14 @@ using (var derivedSubnetRevert = await client.PutAsJsonAsync(
     derivedSubnetRevert.EnsureSuccessStatusCode();
 
 var dummyStudioMonitorPath = Path.Combine(testRoot, "Application.Network.StudioMonitor.x64.exe");
+Require(
+    !AgentMulticastService.IsBlockingNdiProcessName("NDI Discovery Service")
+        && AgentMulticastService.IsNonBlockingNdiBackgroundProcessName("NDI Discovery Service"),
+    "The NDI Discovery Service background process was treated as an open NDI application.");
+Require(
+    AgentMulticastService.IsBlockingNdiProcessName("Application.NDI.DiscoveryService.UI")
+        && AgentMulticastService.IsBlockingNdiProcessName("Application.Network.StudioMonitor.x64"),
+    "An interactive NDI application was omitted from the multicast preflight guard.");
 File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), dummyStudioMonitorPath);
 using (var dummyStudioMonitor = Process.Start(new ProcessStartInfo(dummyStudioMonitorPath)
 {

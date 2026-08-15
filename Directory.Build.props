@@ -3,7 +3,7 @@
     <Product>NDI Configurator PC Agent</Product>
     <Authors>John Lightfoot</Authors>
     <Company>John Lightfoot</Company>
-    <Version>0.6.0-dev.1</Version>
+    <Version>0.6.1-dev.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ReleaseChannel>Development</ReleaseChannel>
     <Copyright>Copyright © 2026 John Lightfoot. All rights reserved. Proprietary software; free for non-commercial use.</Copyright>

@@ -1,4 +1,4 @@
-# NDI Configurator PC Agent 0.6.0 developer handoff
+# NDI Configurator PC Agent 0.6.1 developer handoff
 
 ## Current workflow
 
@@ -38,7 +38,7 @@ Agent discovery advertises `remote-onboarding-v2` and `network-config-v1`.
 Status includes DHCP state, IPv4 gateways, and IPv4 DNS servers for the selected
 adapter. The existing registration and deletion endpoints remain unchanged.
 
-Version `0.6.0` advertises `multicast-config-v1`. An authorized
+Version `0.6.1` advertises `multicast-config-v1`. An authorized
 existing membership can apply or revert its NDI Access Manager multicast state
 through `PUT /api/v1/multicast/configuration` without UAC. The agent validates
 the endpoint, adapter, source membership, job, organization-local aligned `/24`
@@ -64,9 +64,11 @@ Remote onboarding accepts the current server product identity
 the migration window. All user-visible agent and server labels use the current
 names.
 
-The interactive NDI Discovery settings process still blocks configuration, but
-the always-on `NDI Discovery Service` background process does not. This avoids a
-false preflight failure on normal NDI Tools 6.3 installations.
+The interactive NDI Discovery settings process still blocks onboarding and
+multicast changes, but the always-on `NDI Discovery Service` background process
+does not. The multicast preflight also excludes that service from its loaded-DLL
+fallback scan. This avoids false preflight failures on normal NDI Tools 6.3
+installations without weakening the Access Manager or Studio Monitor guards.
 
 The tray menu now provides **Check for updates**. It consumes the public latest
 production GitHub Release deployed from `main`, verifies the GitHub asset digest,
