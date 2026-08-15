@@ -53,10 +53,10 @@ jobs:
         run: dotnet build .\Kiloview.PcOnboarding.csproj --configuration Release
 
       - name: Validate onboarding
-        run: dotnet run --project .\tests\Kiloview.PcOnboarding.Validation\Kiloview.PcOnboarding.Validation.csproj --configuration Release --no-restore
+        run: dotnet run --project .\tests\Kiloview.PcOnboarding.Validation\Kiloview.PcOnboarding.Validation.csproj --configuration Release
 
       - name: Validate agent
-        run: dotnet run --project .\tests\Kiloview.PcAgent.Validation\Kiloview.PcAgent.Validation.csproj --configuration Release --no-restore
+        run: dotnet run --project .\tests\Kiloview.PcAgent.Validation\Kiloview.PcAgent.Validation.csproj --configuration Release
 
       - name: Publish self-contained package
         shell: pwsh
