@@ -149,7 +149,7 @@ internal static class AgentInstallationService
     {
         using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
         if (!mutex.WaitOne(TimeSpan.FromSeconds(5)))
-            throw new IOException("The PC Agent configuration is currently in use.");
+            throw new IOException("The NDI Configurator PC Agent configuration is currently in use.");
         try
         {
             var current = ReadState();
@@ -246,7 +246,7 @@ internal static class AgentInstallationService
     {
         using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
         if (!mutex.WaitOne(TimeSpan.FromSeconds(5)))
-            throw new IOException("The PC Agent configuration is currently in use.");
+            throw new IOException("The NDI Configurator PC Agent configuration is currently in use.");
         try
         {
             if (!File.Exists(StatePath) && File.Exists(LegacyStatePath))
@@ -263,14 +263,14 @@ internal static class AgentInstallationService
         var remoteSubnet = NetworkCidr(network);
         AddOrReplaceFirewallRule(
             DiscoveryRuleName,
-            "Allows Kiloview Job Configurator discovery requests from the selected production subnet.",
+            "Allows NDI Job Configurator discovery requests from the selected production subnet.",
             17,
             DiscoveryPort,
             network.Address,
             remoteSubnet);
         AddOrReplaceFirewallRule(
             ApiRuleName,
-            "Allows Kiloview Job Configurator to read PC Agent monitoring status on the selected production subnet.",
+            "Allows NDI Job Configurator to read NDI Configurator PC Agent monitoring status on the selected production subnet.",
             6,
             ApiPort,
             network.Address,

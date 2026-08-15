@@ -184,6 +184,22 @@ reserved `/24` organization-local multicast range.
 9. With a disposable corrupt configuration file, confirm HTTP 409 and byte-for-
    byte preservation for recovery.
 
+## Online update acceptance
+
+1. Confirm the repository and production Releases are public.
+2. Install the previous production version, right-click the tray icon, and
+   select **Check for updates**.
+3. Confirm the agent offers only a newer non-prerelease version deployed from
+   `main` and asks before downloading.
+4. Approve the download and confirm Windows UAC appears only after package
+   verification.
+5. Approve UAC and confirm the installed setup and agent, tray status, and
+   `/api/v1/status` all report the new version.
+6. Check again and confirm the agent reports that it is up to date.
+7. In an isolated test release, confirm wrong asset names, wrong checksums,
+   non-`main` targets, prereleases, path-traversal archives, and mismatched binary
+   versions are rejected before elevation.
+
 ## Persistence and membership
 
 Confirm `agent-state.json` contains the job membership only after registration
@@ -204,6 +220,8 @@ denial, silent elevated flow, unchanged networking, static networking, DHCP,
 network validation failures, NDI-current notification, NDI-missing/outdated
 notification, registration, managed multicast apply/status/drift/revert/
 authorization/preflight, tray membership, restart, and optional removal.
+Include online update discovery, checksum verification, UAC launch, installed
+version, and already-current results.
 
 Include command output with endpoint ID redacted, screenshots of the bootstrap
 ready state, local approval prompt, final result message, tray menu, and server

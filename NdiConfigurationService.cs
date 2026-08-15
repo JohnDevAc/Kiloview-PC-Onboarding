@@ -6,6 +6,7 @@ namespace KiloviewPcOnboarding;
 
 internal static class NdiConfigurationService
 {
+    private const string DiscoveryUiProcessName = "Application.NDI.DiscoveryService.UI";
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
     private static string ConfigPath => Environment.GetEnvironmentVariable(
         "KILOVIEW_NDI_CONFIG_PATH") is { Length: > 0 } overridePath
@@ -126,8 +127,13 @@ internal static class NdiConfigurationService
         "NDI Access Manager");
 
     private static bool IsDiscoveryRunning() => IsAnyProcessRunning(
-        "Application.NDI.DiscoveryService.UI",
-        "NDI Discovery Service");
+        DiscoveryUiProcessName);
+
+    internal static bool IsBlockingDiscoveryProcessName(string processName) =>
+        string.Equals(
+            processName,
+            DiscoveryUiProcessName,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsAnyProcessRunning(params string[] names) => names.Any(name =>
     {

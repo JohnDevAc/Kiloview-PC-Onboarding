@@ -1,11 +1,27 @@
 # NDI Configurator PC Agent
 
+Copyright © 2026 John Lightfoot. This is proprietary software made available
+free of charge for non-commercial use only. Commercial use requires separate
+written permission or a commercial licence. See [LICENSE.md](LICENSE.md).
+
 This package bootstraps an unelevated Windows tray agent. After the agent is
-installed, onboarding is remote-only: Kiloview Job Configurator requests local
+installed, onboarding is remote-only: NDI Job Configurator requests local
 approval, Windows requests elevation, and the elevated utility silently pulls
 and applies the server-managed configuration before showing a final result.
 Running a newer complete package locally updates the installed binaries, but
 does not expose or start a local onboarding workflow.
+
+## Online updates
+
+Right-click the tray icon and select **Check for updates**. The agent checks the
+latest production GitHub Release deployed from `main`. When a newer version is
+available, the user can download it and approve installation through Windows
+UAC. The agent verifies the exact release asset name, source branch, package
+size, GitHub SHA-256 digest, checksum manifest, archive paths, product identity,
+and binary version before launching Setup.
+
+The source repository and its production Releases must be public for installed
+agents to check and download updates without embedded GitHub credentials.
 
 ## Bootstrap installation
 
@@ -99,7 +115,7 @@ See `SERVER-REMOTE-ONBOARDING-HANDOVER.md` for the server contract and
 - Windows 10 or 11 x64;
 - administrator approval for bootstrap and each approved remote onboarding;
 - an active IPv4 production adapter;
-- Kiloview Job Configurator reachable on TCP 8091 in the selected subnet; and
+- NDI Job Configurator reachable on TCP 8091 in the selected subnet; and
 - NDI Access Manager and NDI Discovery closed while settings are written.
 
 Running NDI applications must be restarted after onboarding. If NDI Tools is

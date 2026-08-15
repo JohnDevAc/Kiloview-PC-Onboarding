@@ -33,7 +33,7 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
                 $"This PC was onboarded successfully to {result.JobName}.\n\n{network}"
                 + "\nNDI interface, group, and discovery settings were applied."
                 + ndi,
-                "NDI Configurator PC Agent setup complete",
+                "NDI Configurator PC Agent Setup complete",
                 MessageBoxButtons.OK,
                 result.NdiUpdateRequired ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
         }

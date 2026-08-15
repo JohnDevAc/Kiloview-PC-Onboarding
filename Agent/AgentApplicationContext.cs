@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -11,10 +12,13 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _activationTimer;
     private readonly WaitHandle _showStatusRequest;
     private readonly Control _dispatcher = new();
+    private readonly CancellationTokenSource _lifetime = new();
     private AgentConfiguration _configuration;
     private AgentNetworkHost? _networkHost;
     private AgentStatusForm? _statusWindow;
+    private ToolStripMenuItem? _updateMenuItem;
     private bool _remoteLaunchPending;
+    private bool _updatePending;
 
     public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
     {
@@ -46,6 +50,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        _lifetime.Cancel();
         _refreshTimer.Stop();
         _refreshTimer.Dispose();
         _activationTimer.Stop();
@@ -55,6 +60,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _tray.Visible = false;
         _tray.Dispose();
         _dispatcher.Dispose();
+        _lifetime.Dispose();
         base.ExitThreadCore();
     }
 
@@ -138,6 +144,12 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
         menu.Items.Add(memberships);
         menu.Items.Add(new ToolStripSeparator());
+        _updateMenuItem = new ToolStripMenuItem(
+            _updatePending ? "Checking for updates…" : "Check for updates");
+        _updateMenuItem.Enabled = !_updatePending && !_remoteLaunchPending;
+        _updateMenuItem.Click += async (_, _) => await CheckForUpdatesAsync();
+        menu.Items.Add(_updateMenuItem);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit agent", null, (_, _) => ExitThread());
 
         var previous = _tray.ContextMenuStrip;
@@ -150,7 +162,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _dispatcher.BeginInvoke(() =>
         {
-            var server = $"{request.ServerName ?? "Kiloview Job Configurator"} ({request.RemoteAddress})";
+            var server = $"{request.ServerName ?? "NDI Job Configurator"} ({request.RemoteAddress})";
             var job = string.IsNullOrWhiteSpace(request.JobName) ? "" : $"\nJob: {request.JobName}";
             var choice = MessageBox.Show(
                 $"{server} is requesting permission to apply centrally managed onboarding settings to this PC.{job}\n\n"
@@ -161,6 +173,16 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 MessageBoxDefaultButton.Button2);
             if (choice != DialogResult.Yes)
             {
+                completion.SetResult(false);
+                return;
+            }
+            if (_updatePending)
+            {
+                MessageBox.Show(
+                    "An agent update is currently being prepared. Retry onboarding after the update completes.",
+                    "NDI Configurator PC Agent",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
                 completion.SetResult(false);
                 return;
             }
@@ -176,6 +198,8 @@ internal sealed class AgentApplicationContext : ApplicationContext
             }
 
             _remoteLaunchPending = true;
+            if (_updateMenuItem is not null)
+                _updateMenuItem.Enabled = false;
             completion.SetResult(true);
         });
         return completion.Task;
@@ -197,8 +221,92 @@ internal sealed class AgentApplicationContext : ApplicationContext
             finally
             {
                 _remoteLaunchPending = false;
+                if (_updateMenuItem is not null)
+                    _updateMenuItem.Enabled = true;
             }
         });
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        if (_updatePending || _remoteLaunchPending)
+            return;
+        _updatePending = true;
+        SetUpdateMenuState("Checking for updates…", false);
+        try
+        {
+            var check = await AgentUpdateService.CheckAsync(_lifetime.Token);
+            if (!check.UpdateAvailable)
+            {
+                MessageBox.Show(
+                    $"NDI Configurator PC Agent {AgentMonitor.Version()} is up to date.",
+                    "NDI Configurator PC Agent",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            var choice = MessageBox.Show(
+                $"NDI Configurator PC Agent {check.Release.Version} is available.\n\n"
+                + "Download and install it now? Windows will request administrator permission after the package is verified.",
+                "NDI Configurator PC Agent Update",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button1);
+            if (choice != DialogResult.Yes)
+                return;
+
+            SetUpdateMenuState("Downloading update…", false);
+            _tray.ShowBalloonTip(
+                4000,
+                "NDI Configurator PC Agent Update",
+                $"Downloading and verifying version {check.Release.Version}.",
+                ToolTipIcon.Info);
+            var setupPath = await AgentUpdateService.DownloadAndStageAsync(
+                check.Release,
+                _lifetime.Token);
+            Process.Start(new ProcessStartInfo(setupPath)
+            {
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+            ExitThread();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            MessageBox.Show(
+                "The update was downloaded and verified, but administrator approval was canceled.",
+                "NDI Configurator PC Agent Update",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex) when (ex is HttpRequestException
+            or TaskCanceledException
+            or IOException
+            or InvalidOperationException
+            or UnauthorizedAccessException
+            or Win32Exception)
+        {
+            MessageBox.Show(
+                $"The update could not be installed.\n\n{ex.Message}",
+                "NDI Configurator PC Agent Update",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _updatePending = false;
+            SetUpdateMenuState("Check for updates", !_remoteLaunchPending);
+        }
+    }
+
+    private void SetUpdateMenuState(string text, bool enabled)
+    {
+        if (_updateMenuItem is null || _updateMenuItem.IsDisposed)
+            return;
+        _updateMenuItem.Text = text;
+        _updateMenuItem.Enabled = enabled;
     }
 
     private async Task RemoveMembershipAsync(AgentMembership membership)
@@ -206,7 +314,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         var choice = MessageBox.Show(
             $"Remove {Environment.MachineName} from {membership.JobName} on {membership.ServerAddress}?\n\n"
             + "This removes the Job Configurator registration. Local NDI settings and the PC Agent remain installed.",
-            "Remove from Kiloview job",
+            "Remove from NDI job",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning,
             MessageBoxDefaultButton.Button2);

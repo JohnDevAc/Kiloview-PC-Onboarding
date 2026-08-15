@@ -347,7 +347,7 @@ internal sealed class MainForm : Form
                     () => AgentInstallationService.InstallOrUpdate(network),
                     token);
             }
-            _serverStatus.Text = $"Searching {ScanDescription(network)} for Kiloview Job Configurator…";
+            _serverStatus.Text = $"Searching {ScanDescription(network)} for NDI Job Configurator…";
             var servers = await JobConfiguratorDiscovery.FindAsync(network, null, token);
             var registeredAddresses = await JobConfiguratorDiscovery.FindExistingRegistrationsAsync(
                 network,

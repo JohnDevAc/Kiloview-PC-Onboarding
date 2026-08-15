@@ -8,6 +8,11 @@ namespace KiloviewPcOnboarding;
 internal static class RemoteOnboardingService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly HashSet<string> SupportedConfiguratorProducts =
+    [
+        "NDI Job Configurator",
+        "Kiloview Job Configurator"
+    ];
 
     public static async Task<RemoteOnboardingResult> ExecuteAsync(
         RemoteOnboardingOptions options,
@@ -16,7 +21,7 @@ internal static class RemoteOnboardingService
         ValidateOptions(options);
         var current = AgentInstallationService.PreferredNetwork()
             ?? throw new InvalidOperationException(
-                "The PC Agent does not have a selected production adapter. Reinstall the agent locally first.");
+                "NDI Configurator PC Agent does not have a selected production adapter. Reinstall the agent locally first.");
         var configuration = await FetchConfigurationAsync(current, options, ct);
         ValidateConfiguration(configuration, options.EndpointId);
         var plan = NetworkConfigurationService.CreatePlan(
@@ -74,10 +79,8 @@ internal static class RemoteOnboardingService
         if (configuration.SchemaVersion != 1)
             throw new InvalidOperationException(
                 $"Remote onboarding schema {configuration.SchemaVersion} is not supported.");
-        if (!string.Equals(
-                configuration.Product,
-                "Kiloview Job Configurator",
-                StringComparison.Ordinal))
+        if (configuration.Product is null
+            || !SupportedConfiguratorProducts.Contains(configuration.Product))
             throw new InvalidOperationException("The remote configuration product identity is invalid.");
         if (!Guid.TryParse(configuration.EndpointId, out var returnedEndpoint)
             || !Guid.TryParse(expectedEndpointId, out var expectedEndpoint)
@@ -115,14 +118,14 @@ internal static class RemoteOnboardingService
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
             throw new InvalidOperationException(
-                "Timed out waiting for Job Configurator to return this PC's onboarding settings. "
+                "Timed out waiting for NDI Job Configurator to return this PC's onboarding settings. "
                 + "Confirm the server remains responsive after it accepts the onboarding request, then retry.",
                 ex);
         }
         catch (HttpRequestException ex)
         {
             throw new InvalidOperationException(
-                "Job Configurator could not be reached while this PC requested its onboarding settings.",
+                "NDI Job Configurator could not be reached while this PC requested its onboarding settings.",
                 ex);
         }
         using (response)
@@ -132,17 +135,17 @@ internal static class RemoteOnboardingService
                 var body = await response.Content.ReadAsStringAsync(ct);
                 throw new InvalidOperationException(
                     ErrorMessage(body)
-                    ?? $"Job Configurator returned {(int)response.StatusCode} while settings were requested.");
+                    ?? $"NDI Job Configurator returned {(int)response.StatusCode} while settings were requested.");
             }
             try
             {
                 return await response.Content.ReadFromJsonAsync<RemoteOnboardingConfiguration>(Json, ct)
-                    ?? throw new InvalidOperationException("Job Configurator returned an empty configuration.");
+                    ?? throw new InvalidOperationException("NDI Job Configurator returned an empty configuration.");
             }
             catch (JsonException ex)
             {
                 throw new InvalidOperationException(
-                    "Job Configurator returned invalid remote onboarding JSON.",
+                    "NDI Job Configurator returned invalid remote onboarding JSON.",
                     ex);
             }
         }
@@ -161,7 +164,7 @@ internal static class RemoteOnboardingService
             throw new InvalidOperationException(
                 "Remote onboarding must use the requesting Configurator's IPv4 address on TCP 8091.");
         if (!Guid.TryParse(options.EndpointId, out _))
-            throw new InvalidOperationException("The PC Agent endpoint identity is invalid.");
+            throw new InvalidOperationException("The NDI Configurator PC Agent endpoint identity is invalid.");
     }
 
     private static string? ErrorMessage(string body)

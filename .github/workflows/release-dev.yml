@@ -1,0 +1,83 @@
+name: Release dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate prerelease version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content -LiteralPath .\Directory.Build.props
+          $version = [string]$props.Project.PropertyGroup.Version
+          $channel = [string]$props.Project.PropertyGroup.ReleaseChannel
+          if ($version -notmatch '^\d+\.\d+\.\d+-dev\.\d+$') {
+            throw "Dev versions must use MAJOR.MINOR.PATCH-dev.NUMBER. Found '$version'."
+          }
+          if ($channel -ne 'Development') {
+            throw "dev releases require ReleaseChannel=Development. Found '$channel'."
+          }
+          $tag = "v$version"
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $tag already exists. Increment Directory.Build.props before deploying dev."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        run: dotnet build .\Kiloview.PcOnboarding.csproj --configuration Release
+
+      - name: Validate onboarding
+        run: dotnet run --project .\tests\Kiloview.PcOnboarding.Validation\Kiloview.PcOnboarding.Validation.csproj --configuration Release --no-restore
+
+      - name: Validate agent
+        run: dotnet run --project .\tests\Kiloview.PcAgent.Validation\Kiloview.PcAgent.Validation.csproj --configuration Release --no-restore
+
+      - name: Publish self-contained package
+        shell: pwsh
+        run: .\scripts\Publish.ps1
+
+      - name: Publish framework-dependent package
+        shell: pwsh
+        run: .\scripts\Publish.ps1 -FrameworkDependent
+
+      - name: Create development prerelease
+        shell: pwsh
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" `
+            .\artifacts\NDI-Configurator-PC-Agent-win-x64.zip `
+            .\artifacts\NDI-Configurator-PC-Agent-win-x64.zip.sha256 `
+            .\artifacts\NDI-Configurator-PC-Agent-win-x64-framework-dependent.zip `
+            .\artifacts\NDI-Configurator-PC-Agent-win-x64-framework-dependent.zip.sha256 `
+            --repo $env:GITHUB_REPOSITORY `
+            --target dev `
+            --title "NDI Configurator PC Agent ${{ steps.version.outputs.tag }}" `
+            --generate-notes `
+            --prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}

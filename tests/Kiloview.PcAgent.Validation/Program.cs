@@ -1,5 +1,6 @@
 using KiloviewPcAgent;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.NetworkInformation;
@@ -39,6 +40,93 @@ var configuration = new AgentConfiguration(
         DateTimeOffset.UtcNow)]);
 var testRoot = Path.Combine(Path.GetTempPath(), $"Kiloview-Agent-Multicast-{Guid.NewGuid():N}");
 Directory.CreateDirectory(testRoot);
+var releaseDigest = new string('A', 64);
+var releaseJson = JsonSerializer.Serialize(new
+{
+    tag_name = "v0.6.0",
+    target_commitish = "main",
+    draft = false,
+    prerelease = false,
+    assets = new object[]
+    {
+        new
+        {
+            name = AgentUpdateService.PackageAssetName,
+            size = 1024,
+            digest = $"sha256:{releaseDigest}",
+            browser_download_url = $"https://github.com/JohnDevAc/Kiloview-PC-Onboarding/releases/download/v0.6.0/{AgentUpdateService.PackageAssetName}"
+        },
+        new
+        {
+            name = AgentUpdateService.ChecksumAssetName,
+            size = 105,
+            digest = $"sha256:{new string('B', 64)}",
+            browser_download_url = $"https://github.com/JohnDevAc/Kiloview-PC-Onboarding/releases/download/v0.6.0/{AgentUpdateService.ChecksumAssetName}"
+        }
+    }
+});
+var availableUpdate = AgentUpdateService.ParseLatestRelease(
+    releaseJson,
+    new Version(0, 5, 2));
+Require(
+    availableUpdate.UpdateAvailable && availableUpdate.Release.Version == new Version(0, 6, 0),
+    "A newer production main-branch release was not detected.");
+Require(
+    !AgentUpdateService.ParseLatestRelease(releaseJson, new Version(0, 6, 0)).UpdateAvailable,
+    "The installed release was incorrectly reported as an update.");
+Require(
+    AgentUpdateService.ParseInstalledVersion("0.6.0-dev.1") == new Version(0, 6, 0),
+    "A development build version could not be normalized for production update comparison.");
+Require(
+    AgentUpdateService.ParseChecksum(
+        $"{releaseDigest}  {AgentUpdateService.PackageAssetName}",
+        AgentUpdateService.PackageAssetName) == releaseDigest,
+    "A valid release checksum was not parsed.");
+RequireThrows<InvalidOperationException>(
+    () => AgentUpdateService.ParseLatestRelease(
+        releaseJson.Replace("\"main\"", "\"dev\"", StringComparison.Ordinal),
+        new Version(0, 5, 2)),
+    "A release not deployed from main was accepted.");
+RequireThrows<InvalidOperationException>(
+    () => AgentUpdateService.ParseChecksum(
+        $"{releaseDigest}  unexpected.zip",
+        AgentUpdateService.PackageAssetName),
+    "A checksum for the wrong asset was accepted.");
+using (var unsafeArchiveBytes = new MemoryStream())
+{
+    using (var writer = new ZipArchive(unsafeArchiveBytes, ZipArchiveMode.Create, leaveOpen: true))
+        writer.CreateEntry("../outside.exe");
+    unsafeArchiveBytes.Position = 0;
+    using var reader = new ZipArchive(unsafeArchiveBytes, ZipArchiveMode.Read);
+    RequireThrows<InvalidOperationException>(
+        () => AgentUpdateService.ValidateArchiveEntries(reader),
+        "An update archive containing path traversal was accepted.");
+}
+var testLiveFeed = string.Equals(
+    Environment.GetEnvironmentVariable("KILOVIEW_TEST_LIVE_UPDATE_FEED"),
+    "1",
+    StringComparison.Ordinal);
+var testLiveDownload = string.Equals(
+    Environment.GetEnvironmentVariable("KILOVIEW_TEST_LIVE_UPDATE_DOWNLOAD"),
+    "1",
+    StringComparison.Ordinal);
+if (testLiveFeed || testLiveDownload)
+{
+    var liveUpdate = await AgentUpdateService.CheckAsync(CancellationToken.None);
+    Require(
+        liveUpdate.Release.Version > new Version(0, 0, 0),
+        "The public GitHub release feed did not return a valid production version.");
+    Console.WriteLine($"AGENT_ONLINE_UPDATE_PUBLIC_FEED=PASS ({liveUpdate.Release.TagName})");
+    if (testLiveDownload)
+    {
+        var stagedSetup = await AgentUpdateService.DownloadAndStageAsync(
+            liveUpdate.Release,
+            CancellationToken.None);
+        Require(File.Exists(stagedSetup), "The public release package was not staged.");
+        Console.WriteLine("AGENT_ONLINE_UPDATE_PUBLIC_PACKAGE=PASS");
+        Directory.Delete(Path.GetDirectoryName(stagedSetup)!, recursive: true);
+    }
+}
 var statePath = Path.Combine(testRoot, "agent-state.json");
 var ndiPath = Path.Combine(testRoot, "ndi-config.v1.json");
 var auditPath = Path.Combine(testRoot, "audit.jsonl");
@@ -470,12 +558,29 @@ Console.WriteLine("AGENT_MULTICAST_LIVE_DRIFT=PASS");
 Console.WriteLine("AGENT_MULTICAST_APPLICATION_PREFLIGHT=PASS");
 Console.WriteLine("AGENT_MULTICAST_UNICAST_REVERT=PASS");
 Console.WriteLine("AGENT_MULTICAST_CORRUPT_FILE_RECOVERY=PASS");
+Console.WriteLine("AGENT_ONLINE_UPDATE_METADATA=PASS");
+Console.WriteLine("AGENT_ONLINE_UPDATE_CHECKSUM=PASS");
+Console.WriteLine("AGENT_ONLINE_UPDATE_ARCHIVE_SAFETY=PASS");
 Console.WriteLine($"AGENT_ADDRESS={adapter.Address}");
 
 static void Require(bool condition, string message)
 {
     if (!condition)
         throw new InvalidOperationException(message);
+}
+
+static void RequireThrows<TException>(Action action, string message)
+    where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+    throw new InvalidOperationException(message);
 }
 
 static void RequireApiStatus(Action action, int expectedStatus, string message)

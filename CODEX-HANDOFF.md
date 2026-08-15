@@ -1,4 +1,4 @@
-# NDI Configurator PC Agent 0.5.0 developer handoff
+# NDI Configurator PC Agent 0.6.0 developer handoff
 
 ## Current workflow
 
@@ -38,7 +38,7 @@ Agent discovery advertises `remote-onboarding-v2` and `network-config-v1`.
 Status includes DHCP state, IPv4 gateways, and IPv4 DNS servers for the selected
 adapter. The existing registration and deletion endpoints remain unchanged.
 
-Version `0.5.0` advertises `multicast-config-v1`. An authorized
+Version `0.6.0` advertises `multicast-config-v1`. An authorized
 existing membership can apply or revert its NDI Access Manager multicast state
 through `PUT /api/v1/multicast/configuration` without UAC. The agent validates
 the endpoint, adapter, source membership, job, organization-local aligned `/24`
@@ -59,6 +59,23 @@ The rebrand migrates earlier Kiloview-branded state and endpoint identity to
 and branded firewall rules, and advertises product `NDI Configurator PC Agent`.
 The discovery query remains `KILOVIEW_PC_AGENT_DISCOVER_V1` for wire compatibility.
 
+Remote onboarding accepts the current server product identity
+`NDI Job Configurator` and the legacy `Kiloview Job Configurator` identity during
+the migration window. All user-visible agent and server labels use the current
+names.
+
+The interactive NDI Discovery settings process still blocks configuration, but
+the always-on `NDI Discovery Service` background process does not. This avoids a
+false preflight failure on normal NDI Tools 6.3 installations.
+
+The tray menu now provides **Check for updates**. It consumes the public latest
+production GitHub Release deployed from `main`, verifies the GitHub asset digest,
+adjacent SHA-256 manifest, archive safety, product identity, and binary version,
+then launches the staged Setup executable with UAC. See
+`ONLINE-UPDATE-DEPLOYMENT-HANDOVER.md`. The main-branch release workflow is
+`.github/workflows/release-main.yml`; `.github/workflows/release-dev.yml`
+publishes development prereleases that installed agents ignore.
+
 ## Build and validation
 
 ```powershell
@@ -74,11 +91,11 @@ tray agent owns production ports 8093/8094.
 
 Current local packages:
 
-- `artifacts/NDI-Configurator-PC-Agent-win-x64.zip` — 126.998 MB,
-  SHA-256 `9172C8411277755F96BFD4AAEFE7F1AFB5AE59A355AFD32EA4E2FCB5D4A464A6`
+- `artifacts/NDI-Configurator-PC-Agent-win-x64.zip` — 132.783 MB,
+  SHA-256 `CCD6650E843F238A740D542A6AECAAB89E492811C24ABD5ED74E710F82EA89BC`
 - `artifacts/NDI-Configurator-PC-Agent-win-x64-framework-dependent.zip` —
-  0.870 MB, SHA-256
-  `E190671357731137A2CB28330D3F3DB2E05EE60314D0F6A0D4AE2CA22F817D60`
+  0.919 MB, SHA-256
+  `2F9B03614D3C8D179074136F0D0895D45C09641AAD8537078FB32C915975D8E3`
 
 Each archive has an adjacent `.sha256` manifest.
 

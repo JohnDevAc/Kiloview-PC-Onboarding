@@ -133,6 +133,7 @@ internal static class JobConfiguratorDiscovery
         if (health is null
             || !string.Equals(health.Status, "ok", StringComparison.OrdinalIgnoreCase)
             || health.Product is not null
+            && !string.Equals(health.Product, "NDI Job Configurator", StringComparison.Ordinal)
             && !string.Equals(health.Product, "Kiloview Job Configurator", StringComparison.Ordinal))
             return null;
 

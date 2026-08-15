@@ -44,11 +44,11 @@ internal static class Program
                 ? new AgentInstallationResult(
                     false,
                     false,
-                    "The installed PC Agent network selection could not be read.")
+                    "The installed NDI Configurator PC Agent network selection could not be read.")
                 : AgentInstallationService.InstallOrUpdate(network);
             MessageBox.Show(
                 update.Installed
-                    ? "The NDI Configurator PC Agent installation is up to date. Onboarding must be started remotely from Kiloview Job Configurator."
+                    ? "NDI Configurator PC Agent is installed and up to date. Onboarding must be started remotely from NDI Job Configurator."
                     : $"NDI Configurator PC Agent could not be updated.\n\n{update.Message}",
                 "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
@@ -74,7 +74,7 @@ internal static class Program
         var configurator = Argument(args, "--configurator")
             ?? throw new ArgumentException("The remote Configurator URL is missing.");
         var endpointId = Argument(args, "--endpoint-id")
-            ?? throw new ArgumentException("The PC Agent endpoint identity is missing.");
+            ?? throw new ArgumentException("The NDI Configurator PC Agent endpoint identity is missing.");
         var requestingAddress = Argument(args, "--requesting-address")
             ?? throw new ArgumentException("The requesting Configurator address is missing.");
         if (!Uri.TryCreate(configurator, UriKind.Absolute, out var baseUri))
