@@ -58,6 +58,17 @@ internal static class AgentMulticastService
         return Snapshot(configuration, root);
     }
 
+    internal static NdiOnboardingState OnboardingStatus(AgentConfiguration configuration)
+    {
+        var ndi = ReadConfiguration()["ndi"];
+        var allowed = ndi?["adapters"]?["allowed"] as JsonArray;
+        static string[] Groups(JsonNode? value) => (value?.GetValue<string>() ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return new(allowed?.Count == 1 && allowed[0]?.GetValue<string>() == configuration.Address,
+            Groups(ndi?["groups"]?["send"]), Groups(ndi?["groups"]?["recv"]),
+            ndi?["networks"]?["discovery"]?.GetValue<string>() ?? "");
+    }
+
     public static MulticastConfigurationState Apply(
         AgentConfiguration configuration,
         IPAddress remote,
@@ -294,7 +305,9 @@ internal static class AgentMulticastService
         || processName.Equals("Application.NDI.DiscoveryService.UI", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsNonBlockingNdiBackgroundProcessName(string processName) =>
-        processName.Equals("NDI Discovery Service", StringComparison.OrdinalIgnoreCase);
+        processName.Equals("NDI Discovery Service", StringComparison.OrdinalIgnoreCase)
+        // The server reloads its own preview receiver after this managed change.
+        || processName.Equals("NDIJobConfigurator", StringComparison.OrdinalIgnoreCase);
 
     private static JsonObject ReadConfiguration()
     {

@@ -54,6 +54,7 @@ internal static partial class AgentMonitor
                     .ToArray() ?? []
             },
             multicastConfiguration = AgentMulticastService.Current(configuration),
+            ndiConfiguration = AgentMulticastService.OnboardingStatus(configuration),
             ndiToolsInstalled = ndi.Installed,
             ndiToolsVersion = ndi.Version,
             agentStartedUtc,

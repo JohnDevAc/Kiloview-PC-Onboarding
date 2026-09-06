@@ -31,15 +31,18 @@ internal static class NdiConfigurationService
     {
         EnsureApplicationsClosed();
         await using var configurationLock = await AcquireConfigurationLockAsync(ct);
-        await ApplyConfigurationFilesAsync(network, server, ct);
+        await ApplyConfigurationFilesAsync(network, server, ct,
+            AgentInstallationService.PreviousJob(server.Address));
     }
 
     internal static void EnsureApplicationsClosed()
     {
-        if (IsAccessManagerRunning() || IsDiscoveryRunning())
+        if (IsAccessManagerRunning() || IsDiscoveryRunning() || IsAnyProcessRunning(
+            "Application.Network.StudioMonitor.x64", "Application.Network.StudioMonitor.x86", "NDI Studio Monitor"))
             throw new InvalidOperationException(
-                "Close NDI Access Manager and NDI Discovery before applying settings. "
-                + "Either application can overwrite externally applied settings when it exits.");
+                "Close NDI Access Manager, NDI Discovery, and NDI Studio Monitor before applying settings. "
+                + "These clients can retain stale settings or overwrite externally applied settings when they exit. "
+                + "The background NDI Discovery Server can remain running.");
     }
 
     internal static async Task PreflightAsync(CancellationToken ct)
@@ -52,7 +55,8 @@ internal static class NdiConfigurationService
     internal static async Task ApplyConfigurationFilesAsync(
         NetworkChoice network,
         JobConfiguratorInstance server,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? previousJob = null)
     {
         var configPath = ConfigPath;
         JsonObject root;
@@ -77,8 +81,8 @@ internal static class NdiConfigurationService
         var adapters = Object(ndi, "adapters");
         adapters["allowed"] = new JsonArray(network.Address);
         var groups = Object(ndi, "groups");
-        groups["send"] = AddValue(Text(groups, "send"), server.JobName);
-        groups["recv"] = AddValue(Text(groups, "recv"), server.JobName);
+        groups["send"] = ReplaceManagedGroup(Text(groups, "send"), previousJob, server.JobName);
+        groups["recv"] = ReplaceManagedGroup(Text(groups, "recv"), previousJob, server.JobName);
         Object(ndi, "networks")["discovery"] = server.NdiDiscoveryServerIp;
 
         await WriteConfigurationAsync(configPath, root, ct);
@@ -125,6 +129,11 @@ internal static class NdiConfigurationService
         "Application.NdiGroupEditor",
         "Access Manager",
         "NDI Access Manager");
+
+    internal static string ReplaceManagedGroup(string? groups, string? previous, string next) => string.Join(',',
+        (groups ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(group => !string.Equals(group, previous, StringComparison.OrdinalIgnoreCase))
+            .Append(next).Distinct(StringComparer.OrdinalIgnoreCase));
 
     private static bool IsDiscoveryRunning() => IsAnyProcessRunning(
         DiscoveryUiProcessName);

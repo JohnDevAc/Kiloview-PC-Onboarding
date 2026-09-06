@@ -4,12 +4,30 @@ Copyright © 2026 John Lightfoot. This is proprietary software made available
 free of charge for non-commercial use only. Commercial use requires separate
 written permission or a commercial licence. See [LICENSE.md](LICENSE.md).
 
-This package bootstraps an unelevated Windows tray agent. After the agent is
-installed, onboarding is remote-only: NDI Job Configurator requests local
-approval, Windows requests elevation, and the elevated utility silently pulls
-and applies the server-managed configuration before showing a final result.
-Running a newer complete package locally updates the installed binaries, but
-does not expose or start a local onboarding workflow.
+This package installs a Windows tray agent and owns Windows NDI onboarding.
+Remote PCs require local approval and UAC. When installed alongside NDI Job
+Configurator on the server PC, the elevated server invokes the installed utility
+directly without another confirmation. Both products remain independent Git
+repositories, installations, and release feeds, managed by the suite workspace.
+
+## Server installation and local onboarding
+
+The server installer includes the complete PC Agent package as an optional
+component, selected by default. Its license is included in the initial agreement.
+The agent may be installed before a network adapter is selected; server onboarding
+then activates it on the selected adapter. Newer independently updated agents
+are retained, and uninstalling the server does not uninstall this component.
+
+The installed utility's `--server-command` mode uses bounded stdin/stdout JSON.
+It verifies the selected active adapter, preserves Windows IP settings, applies
+and verifies NDI settings, and records agent membership. It uses the server's
+existing administrator rights and installation consent. There is no additional
+Yes/No, UAC, or result dialog. The remote network API gains no bypass.
+See `SERVER-LOCAL-ONBOARDING-HANDOVER.md` and the server workspace's
+`PC-ONBOARDING-CONTRACT.md` for the versioned contract.
+
+Setup and the tray agent use `assets/PcAgent.ico`, with a royal-blue background
+that distinguishes the companion from the server. See `assets/ICON.md`.
 
 ## Online updates
 
@@ -36,7 +54,7 @@ bootstrap UI:
 6. creates an HKCU startup entry; and
 7. creates subnet-scoped inbound UDP 8093 and TCP 8094 firewall rules.
 
-The bootstrap UI cannot join or update a job. Once agent state exists, launching
+The interactive bootstrap UI cannot join or update a job; the installed server uses the separate local process command. Once agent state exists, launching
 the utility normally displays a message directing the user to start onboarding
 from Job Configurator.
 
@@ -96,7 +114,7 @@ addition to the existing status, membership, and open-request capabilities. An
 onboarded agent also advertises `multicast-config-v1` and accepts an authorized
 Configurator's idempotent `PUT /api/v1/multicast/configuration` request.
 Status includes current DHCP state, default gateways, and DNS servers for the
-selected adapter plus the live verified NDI multicast state. Multicast changes
+selected adapter plus the live verified NDI multicast state. The `ndiConfiguration` object reports the preferred-interface match, send/receive groups, and discovery server for onboarding drift checks. Multicast changes
 run unelevated, preserve unrelated Access Manager fields, and require the TCP
 source and job to match an existing membership. Open NDI configuration clients
 produce HTTP 409 instead of being terminated. Status contains no passwords,
@@ -116,7 +134,7 @@ See `SERVER-REMOTE-ONBOARDING-HANDOVER.md` for the server contract and
 - administrator approval for bootstrap and each approved remote onboarding;
 - an active IPv4 production adapter;
 - NDI Job Configurator reachable on TCP 8091 in the selected subnet; and
-- NDI Access Manager and NDI Discovery closed while settings are written.
+- NDI Access Manager, NDI Discovery, and NDI Studio Monitor closed while settings are written (the background Discovery Server can remain running).
 
 Running NDI applications must be restarted after onboarding. If NDI Tools is
 missing or outdated, install the latest release from the NDI website after the
@@ -136,6 +154,5 @@ For the smaller package that requires the .NET 8 Desktop Runtime:
 .\scripts\Publish.ps1 -FrameworkDependent
 ```
 
-Both packages include the bootstrap executable, agent payload, licence, remote
-server handover, and test-machine handover. ZIP checksum manifests are generated
+Both packages include the bootstrap executable, agent payload, licence, local and remote server handovers, and test-machine handover. ZIP checksum manifests are generated
 beside the archives.

@@ -158,6 +158,15 @@ await File.WriteAllTextAsync(
     }
     """);
 
+var onboardingStatus = AgentMulticastService.OnboardingStatus(configuration with { Address = "192.0.2.20" });
+Require(onboardingStatus.PreferredInterfaceConfigured
+    && onboardingStatus.SendGroups.SequenceEqual(["Studio A"])
+    && onboardingStatus.ReceiveGroups.SequenceEqual(["Studio A"])
+    && onboardingStatus.DiscoveryServer == "192.0.2.10", "NDI onboarding status did not read the saved configuration.");
+Require(!AgentMulticastService.OnboardingStatus(configuration with { Address = "192.0.2.21" }).PreferredInterfaceConfigured,
+    "NDI onboarding status missed an adapter mismatch.");
+Console.WriteLine("AGENT_NDI_ONBOARDING_STATUS=PASS");
+
 OnboardingLaunchRequest? launchRequest = null;
 var approvedLaunchStarted = new TaskCompletionSource<OnboardingLaunchRequest>(
     TaskCreationOptions.RunContinuationsAsynchronously);
@@ -507,7 +516,8 @@ using (var derivedSubnetRevert = await client.PutAsJsonAsync(
 var dummyStudioMonitorPath = Path.Combine(testRoot, "Application.Network.StudioMonitor.x64.exe");
 Require(
     !AgentMulticastService.IsBlockingNdiProcessName("NDI Discovery Service")
-        && AgentMulticastService.IsNonBlockingNdiBackgroundProcessName("NDI Discovery Service"),
+        && AgentMulticastService.IsNonBlockingNdiBackgroundProcessName("NDI Discovery Service")
+        && AgentMulticastService.IsNonBlockingNdiBackgroundProcessName("NDIJobConfigurator"),
     "The NDI Discovery Service background process was treated as an open NDI application.");
 Require(
     AgentMulticastService.IsBlockingNdiProcessName("Application.NDI.DiscoveryService.UI")

@@ -114,6 +114,28 @@ try
         !NdiConfigurationService.IsBlockingDiscoveryProcessName("NDI Discovery Service"),
         "The always-on NDI Discovery background service was incorrectly identified as blocking.");
 
+    var localCommand = new ServerOnboardingRequest(1, "onboard", current.Id, current.Address,
+        "Local job", "192.168.50.11");
+    ServerOnboardingCommand.Validate(localCommand);
+    Require(ServerOnboardingCommand.ResolveNetwork(localCommand, [current]) == current,
+        "Local server commands must use the selected active local adapter.");
+    RequireThrows(() => ServerOnboardingCommand.ResolveNetwork(localCommand with { Address = "192.168.50.20" }, [current]),
+        "A remote or stale address was accepted as the server adapter.");
+    try
+    {
+        ServerOnboardingCommand.Validate(localCommand with { AcceptLicense = true });
+        throw new InvalidOperationException("An onboarding command could grant installer consent.");
+    }
+    catch (ArgumentException) { }
+    Require(!AgentInstallationService.IsInstalledUtility(Path.Combine(testRoot, "NDI Configurator PC Agent Setup.exe")),
+        "A workspace copy was accepted as the installed no-prompt utility.");
+    Require(NdiConfigurationService.ReplaceManagedGroup("Public,OldJob,Custom", "OldJob", "NextJob") == "Public,Custom,NextJob",
+        "Replacing a managed job must retain unrelated groups and remove the previous job.");
+    Require(NdiConfigurationService.ReplaceManagedGroup("Public,NextJob", "OldJob", "NextJob") == "Public,NextJob",
+        "Managed job reapplication must be idempotent.");
+    Console.WriteLine("LOCAL_SERVER_COMMAND_BOUNDARY=PASS");
+    Console.WriteLine("LOCAL_SERVER_INSTALLED_UTILITY=PASS");
+    Console.WriteLine("NDI_MANAGED_GROUP_REPLACEMENT=PASS");
     Console.WriteLine("REMOTE_ONBOARDING_ARGUMENTS=PASS");
     Console.WriteLine("REMOTE_ONBOARDING_CONFIGURATION_VALIDATION=PASS");
     Console.WriteLine("REMOTE_NETWORK_STATIC_PLAN=PASS");

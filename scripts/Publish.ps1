@@ -14,6 +14,15 @@ $compression = if ($FrameworkDependent) { 'false' } else { 'true' }
 $output = Join-Path $projectRoot "artifacts\$variant"
 $agentOutput = Join-Path $projectRoot "artifacts\agent-$variant"
 
+foreach ($target in @($output, $agentOutput)) {
+    $artifactRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'artifacts'))
+    $resolved = [IO.Path]::GetFullPath($target)
+    if (-not $resolved.StartsWith($artifactRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Publish output must remain inside artifacts.'
+    }
+    if ((Test-Path -LiteralPath $resolved) -and (Get-Item -LiteralPath $resolved -Force).LinkType) { throw 'Publish output cannot be a filesystem link.' }
+}
+
 if (Test-Path -LiteralPath $output) {
     Remove-Item -LiteralPath $output -Recurse -Force
 }
@@ -30,6 +39,7 @@ dotnet publish $agentProject `
     -p:EnableCompressionInSingleFile=$compression `
     -p:DebugType=None `
     -p:DebugSymbols=false
+if ($LASTEXITCODE -ne 0) { throw 'PC Agent publish failed.' }
 
 dotnet publish $project `
     --configuration $Configuration `
@@ -40,6 +50,7 @@ dotnet publish $project `
     -p:EnableCompressionInSingleFile=$compression `
     -p:DebugType=None `
     -p:DebugSymbols=false
+if ($LASTEXITCODE -ne 0) { throw 'PC Agent Setup publish failed.' }
 
 $agentPayload = Join-Path $output 'Agent'
 New-Item -ItemType Directory -Path $agentPayload -Force | Out-Null
@@ -48,6 +59,7 @@ Copy-Item -Path (Join-Path $agentOutput '*') -Destination $agentPayload -Recurse
 $readme = Join-Path $projectRoot 'README.md'
 $license = Join-Path $projectRoot 'LICENSE.md'
 $remoteOnboardingHandover = Join-Path $projectRoot 'SERVER-REMOTE-ONBOARDING-HANDOVER.md'
+$localOnboardingHandover = Join-Path $projectRoot 'SERVER-LOCAL-ONBOARDING-HANDOVER.md'
 $retryHandover = Join-Path $projectRoot 'SERVER-ONBOARDING-RETRY-HANDOVER.md'
 $multicastHandover = Join-Path $projectRoot 'SERVER-MULTICAST-CONFIGURATION-HANDOVER.md'
 $multicast24Handover = Join-Path $projectRoot 'AGENT-MULTICAST-24-UPGRADE-HANDOVER.md'
@@ -56,6 +68,7 @@ $testMachineHandover = Join-Path $projectRoot 'TEST-MACHINE-HANDOVER.md'
 Copy-Item -LiteralPath $readme -Destination (Join-Path $output 'README.md') -Force
 Copy-Item -LiteralPath $license -Destination (Join-Path $output 'LICENSE.md') -Force
 Copy-Item -LiteralPath $remoteOnboardingHandover -Destination (Join-Path $output 'SERVER-REMOTE-ONBOARDING-HANDOVER.md') -Force
+Copy-Item -LiteralPath $localOnboardingHandover -Destination (Join-Path $output 'SERVER-LOCAL-ONBOARDING-HANDOVER.md') -Force
 Copy-Item -LiteralPath $retryHandover -Destination (Join-Path $output 'SERVER-ONBOARDING-RETRY-HANDOVER.md') -Force
 Copy-Item -LiteralPath $multicastHandover -Destination (Join-Path $output 'SERVER-MULTICAST-CONFIGURATION-HANDOVER.md') -Force
 Copy-Item -LiteralPath $multicast24Handover -Destination (Join-Path $output 'AGENT-MULTICAST-24-UPGRADE-HANDOVER.md') -Force

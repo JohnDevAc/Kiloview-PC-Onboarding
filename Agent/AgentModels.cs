@@ -1,5 +1,8 @@
 namespace KiloviewPcAgent;
 
+internal sealed record NdiOnboardingState(bool PreferredInterfaceConfigured,
+    IReadOnlyList<string> SendGroups, IReadOnlyList<string> ReceiveGroups, string DiscoveryServer);
+
 internal sealed record AgentConfiguration(
     int SchemaVersion,
     string EndpointId,

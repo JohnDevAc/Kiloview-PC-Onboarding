@@ -59,7 +59,7 @@ internal static class AgentInstallationService
         "PC Agent",
         "agent-state.json");
 
-    public static AgentInstallationResult InstallOrUpdate(NetworkChoice network)
+    public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
     {
         var sourceAgent = ResolveAgentPayload();
         if (sourceAgent is null)
@@ -95,20 +95,22 @@ internal static class AgentInstallationService
                     Path.GetDirectoryName(runningUtility)!,
                     Path.GetFileNameWithoutExtension(runningUtility));
 
-            UpdateConfiguration(network, null);
+            if (network is not null) UpdateConfiguration(network, null);
             ConfigureStartup();
-            ConfigureLanRules(network);
+            if (network is not null) ConfigureLanRules(network);
             RemoveFirewallRule(LegacyDiscoveryRuleName);
             RemoveFirewallRule(LegacyApiRuleName);
             RemoveFirewallRule(LegacyPingRuleName);
             StopLegacyAgent();
-            var started = StartAgentIfNeeded();
+            var started = network is not null && StartAgentIfNeeded();
             return new(
                 true,
                 started,
                 started
                     ? $"NDI Configurator PC Agent installed · discovery UDP {DiscoveryPort} · monitoring TCP {ApiPort}"
-                    : "NDI Configurator PC Agent installed and will start at the next user logon.");
+                    : network is null
+                        ? "PC Agent installed. Select this server's adapter during Job Configurator onboarding to activate it."
+                        : "NDI Configurator PC Agent installed and will start at the next user logon.");
         }
         catch (Exception ex)
         {
@@ -131,6 +133,13 @@ internal static class AgentInstallationService
 
     public static bool IsConfigured() => ReadState() is not null
         && (File.Exists(InstalledAgentPath) || File.Exists(LegacyInstalledAgentPath));
+
+    internal static bool IsInstalledUtility(string? executable) => executable is not null
+        && string.Equals(Path.GetFullPath(executable), InstalledUtilityPath, StringComparison.OrdinalIgnoreCase)
+        && File.Exists(InstalledAgentPath);
+
+    internal static string? PreviousJob(string serverAddress) => ReadState()?.Memberships
+        .FirstOrDefault(item => string.Equals(item.ServerAddress, serverAddress, StringComparison.OrdinalIgnoreCase))?.JobName;
 
     public static void RecordMembership(
         NetworkChoice network,
