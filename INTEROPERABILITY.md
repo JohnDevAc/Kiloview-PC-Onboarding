@@ -1,5 +1,9 @@
 # Suite interoperability
 
+## Additional QA corrections — 6 September 2026
+
+Outcome retries now rotate across pending attempts. An unreachable old server cannot block later confirmations; malformed journals are retained and reported while valid journals continue. Setup and Agent validate schema, endpoint/adapter GUIDs, usable IPv4/prefix and memberships before trusting saved state. Invalid state suspends the listener, and status requests return a repair error instead of cached success. Invalid final-response JSON retains the completed outcome for retry.
+
 ## QA follow-up contract — 6 September 2026
 
 The current remote contract additionally advertises `onboarding-outcome-v1` and requires configuration's `requiresFinalConfirmation: true`. Registration is provisional. Setup atomically records `applying`, then `completed`, `aborted` or `recovery-required` in `onboarding-outcomes` beside Agent state. Only server-confirmed completion adds the PC to the job. Exhausted registration responses cause rollback plus a durable abort; lost final confirmation keeps applied settings and retries from Agent after Setup exits. Interrupted `applying` journals require repair. Both sides retain receipts across restarts; stale job/attempt identities cannot finalize a new job. Approval/UAC precedes the server's five-minute registration window; local execution is bounded to four minutes after fetch, with recovery separately bounded.

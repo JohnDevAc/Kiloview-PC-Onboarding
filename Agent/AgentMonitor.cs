@@ -13,7 +13,8 @@ internal static partial class AgentMonitor
 {
     public static object Snapshot(AgentConfiguration configuration, DateTimeOffset agentStartedUtc)
     {
-        configuration = AgentStore.Read() ?? configuration;
+        configuration = AgentStore.Read() ?? throw new AgentApiException(503,
+            "The saved PC Agent configuration is invalid or unavailable. Repair it using PC Agent Setup.");
         var ndi = FindNdiTools();
         var drive = DriveInfo.GetDrives().FirstOrDefault(item =>
             item.IsReady && string.Equals(

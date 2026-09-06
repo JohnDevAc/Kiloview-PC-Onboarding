@@ -144,6 +144,18 @@ Environment.SetEnvironmentVariable("KILOVIEW_AGENT_AUDIT_PATH", auditPath);
 Environment.SetEnvironmentVariable("KILOVIEW_NDI_SKIP_PROCESS_CHECK", "1");
 var testJson = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
 await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(configuration, testJson));
+foreach (var invalid in new[] { configuration with { SchemaVersion = 2 }, configuration with { EndpointId = Guid.Empty.ToString() },
+    configuration with { AdapterId = "" }, configuration with { Address = "127.0.0.1" }, configuration with { PrefixLength = 0 },
+    configuration with { Memberships = null! } })
+{
+    await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(invalid, testJson));
+    if (AgentStore.Read() is not null) throw new Exception("Invalid persisted Agent identity was accepted.");
+    try { AgentMonitor.Snapshot(configuration, DateTimeOffset.UtcNow); throw new Exception("Monitoring advertised stale identity after state became invalid."); }
+    catch (AgentApiException ex) when (ex.StatusCode == 503) { }
+}
+await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(configuration, testJson));
+if (AgentStore.Read() is null) throw new Exception("Valid persisted Agent configuration was rejected.");
+Console.WriteLine("AGENT_PERSISTED_IDENTITY_VALIDATION=PASS");
 await File.WriteAllTextAsync(
     ndiPath,
     """

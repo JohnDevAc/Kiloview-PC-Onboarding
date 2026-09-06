@@ -4,6 +4,11 @@ internal static class QaRegression
 {
     internal static async Task RunAsync(string root)
     {
+        var endpoint = Guid.NewGuid().ToString(); var adapter = Guid.NewGuid().ToString();
+        Check(NdiSuite.Configuration.AgentConfigurationValidity.IsValid(1, endpoint, adapter, "192.0.2.20", 24), "Valid saved identity was rejected.");
+        foreach (var address in new[] { "0.0.0.0", "127.0.0.1", "169.254.1.2", "224.0.0.1", "192.0.2.0", "192.0.2.255" })
+            Check(!NdiSuite.Configuration.AgentConfigurationValidity.IsValid(1, endpoint, adapter, address, 24), "Unusable saved address was accepted.");
+        Console.WriteLine("SETUP_PERSISTED_IDENTITY_VALIDATION=PASS");
         var policy = new AgentFirewallPolicy(17, 8093, "Production", Path.Combine(root, "agent.exe"));
         var rule = new FirewallFixture();
         policy.Apply(rule);

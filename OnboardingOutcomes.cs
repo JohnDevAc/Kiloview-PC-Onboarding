@@ -34,19 +34,38 @@ internal static class OnboardingOutcomes
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    internal static IReadOnlyList<PendingOutcome> ReadAll(string statePath)
+    internal static IReadOnlyList<PendingOutcome> ReadAll(string statePath, Action<string>? reportInvalid = null)
     {
         var directory = DirectoryPath(statePath);
         if (!Directory.Exists(directory)) return [];
-        return Directory.EnumerateFiles(directory, "*.json").Select(path =>
+        var outcomes = new List<PendingOutcome>();
+        foreach (var path in Directory.EnumerateFiles(directory, "*.json"))
         {
-            var value = JsonSerializer.Deserialize<PendingOutcome>(File.ReadAllText(path), Json)
-                ?? throw new IOException("The pending onboarding outcome is invalid.");
-            Validate(value);
-            if (!string.Equals(path, PathFor(statePath, value.AttemptId), StringComparison.OrdinalIgnoreCase))
-                throw new IOException("The pending outcome filename does not match its attempt.");
-            return value;
-        }).OrderBy(value => value.UpdatedUtc).ToArray();
+            try
+            {
+                var value = JsonSerializer.Deserialize<PendingOutcome>(File.ReadAllText(path), Json)
+                    ?? throw new IOException("The pending onboarding outcome is invalid.");
+                Validate(value);
+                if (!string.Equals(path, PathFor(statePath, value.AttemptId), StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("The pending outcome filename does not match its attempt.");
+                outcomes.Add(value);
+            }
+            catch (Exception ex) when (reportInvalid is not null && ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                // Preserve unreadable evidence for repair while allowing unrelated
+                // confirmations to proceed. Never infer a terminal outcome from it.
+                reportInvalid(Path.GetFileName(path) + ": " + ex.Message);
+            }
+        }
+        return outcomes.OrderBy(value => value.UpdatedUtc).ThenBy(value => value.AttemptId, StringComparer.Ordinal).ToArray();
+    }
+
+    internal static PendingOutcome? SelectNext(IReadOnlyList<PendingOutcome> outcomes, string endpointId, string adapterId, string? previousAttempt)
+    {
+        var eligible = outcomes.Where(value => value.EndpointId == endpointId && value.AdapterId == adapterId).ToArray();
+        if (eligible.Length == 0) return null;
+        var previous = Array.FindIndex(eligible, value => value.AttemptId == previousAttempt);
+        return eligible[(previous + 1) % eligible.Length];
     }
 
     internal static void Acknowledge(string statePath, PendingOutcome expected)

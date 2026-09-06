@@ -35,7 +35,10 @@ internal static class AgentStore
                         : null;
             if (path is null)
                 return null;
-            return JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(path), Json);
+            var state = JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(path), Json);
+            return state is not null && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
+                state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
+                && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName)) ? state : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {

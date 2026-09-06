@@ -235,9 +235,12 @@ internal static class AgentInstallationService
             var path = File.Exists(StatePath)
                 ? StatePath
                 : LegacyStatePath;
-            return File.Exists(path)
+            var state = File.Exists(path)
                 ? JsonSerializer.Deserialize<AgentState>(File.ReadAllText(path), Json)
                 : null;
+            return state is not null && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
+                state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
+                && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName)) ? state : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {

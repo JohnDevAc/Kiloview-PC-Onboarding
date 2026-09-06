@@ -123,7 +123,7 @@ internal static class RemoteOnboardingService
                 throw new InvalidOperationException("The job or onboarding attempt changed before confirmation. Reapply approved onboarding for the current job.");
             return true;
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException) { return false; }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or JsonException) { return false; }
     }
 
     internal static void ValidateConfiguration(

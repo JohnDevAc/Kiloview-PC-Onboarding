@@ -21,7 +21,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private bool _remoteLaunchPending;
     private bool _updatePending;
     private bool _outcomeReporting;
-    private string? _outcomeWarning;
+    private readonly Dictionary<string, string> _outcomeWarnings = new();
 
     public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
     {
@@ -72,7 +72,13 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         var updated = AgentStore.Read();
         if (updated is null)
+        {
+            _networkHost?.Dispose();
+            _networkHost = null;
+            _tray.Text = "NDI Configurator PC Agent - configuration needs repair";
+            BuildMenu();
             return;
+        }
         var actual = AgentAddressResolver.Resolve(updated);
         if (actual is null)
         {
@@ -144,10 +150,16 @@ internal sealed class AgentApplicationContext : ApplicationContext
         {
             using var operation = KiloviewPcOnboarding.SetupOperationLease.TryAcquireForReconciliation();
             if (operation is null) return;
-            var outcome = OnboardingOutcomes.ReadAll(AgentStore.ConfigurationPath)
-                .FirstOrDefault(item => item.EndpointId == configuration.EndpointId && item.AdapterId == configuration.AdapterId);
+            var invalid = new List<string>();
+            var outcomes = OnboardingOutcomes.ReadAll(AgentStore.ConfigurationPath, invalid.Add);
+            if (invalid.Count > 0) WarnOutcome("Saved onboarding outcome needs repair", string.Join(Environment.NewLine, invalid));
+            else _outcomeWarnings.Remove("Saved onboarding outcome needs repair");
+            var outcome = OnboardingOutcomes.SelectNext(outcomes, configuration.EndpointId, configuration.AdapterId, _lastOutcomeAttempt);
             var actual = AgentAddressResolver.Resolve(configuration);
             if (outcome is null || actual is null) return;
+            // One bounded request per timer tick; an offline old job cannot starve
+            // confirmation to a different server or a later approved attempt.
+            _lastOutcomeAttempt = outcome.AttemptId;
             if (outcome.Outcome == "applying")
             {
                 outcome = outcome with { Outcome = "recovery-required", UpdatedUtc = DateTimeOffset.UtcNow };
@@ -156,6 +168,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
             using var client = OnboardingOutcomes.CreateClient(actual.Address);
             var status = await OnboardingOutcomes.SendAsync(client, outcome, _lifetime.Token);
             OnboardingOutcomes.Acknowledge(AgentStore.ConfigurationPath, outcome);
+            _outcomeWarnings.Remove("Onboarding confirmation pending");
             if (_lifetime.IsCancellationRequested || _dispatcher.IsDisposed) return;
             _tray.ShowBalloonTip(7000, "PC onboarding outcome",
                 status == "completed" ? "Job Configurator confirmed this PC's completed onboarding."
@@ -165,14 +178,17 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            if (!_lifetime.IsCancellationRequested && _outcomeWarning != ex.Message)
-            {
-                _outcomeWarning = ex.Message;
-                _tray.ShowBalloonTip(7000, "Onboarding confirmation pending",
-                    "PC Agent will retry its saved outcome when Job Configurator is reachable. " + ex.Message, ToolTipIcon.Warning);
-            }
+            WarnOutcome("Onboarding confirmation pending", "PC Agent will retry its saved outcome when Job Configurator is reachable. " + ex.Message);
         }
         finally { _outcomeReporting = false; }
+    }
+
+    private string? _lastOutcomeAttempt;
+    private void WarnOutcome(string title, string message)
+    {
+        if (_lifetime.IsCancellationRequested || _dispatcher.IsDisposed || _outcomeWarnings.GetValueOrDefault(title) == message) return;
+        _outcomeWarnings[title] = message;
+        _tray.ShowBalloonTip(7000, title, message, ToolTipIcon.Warning);
     }
 
     private void BuildMenu()
