@@ -38,7 +38,18 @@ internal sealed partial class NdiToolsService
                 ? $"NDI Tools {installedVersion} is installed; {currentVersion} is current."
                 : $"NDI Tools {installedVersion?.ToString() ?? "version unknown"} is installed."
                     + (onlineError is null ? " It is current." : $" {onlineError}");
-        return new(installed is not null, installedVersion, currentVersion, accessManager, message);
+        var result = new NdiToolsStatus(installed is not null, installedVersion, currentVersion, accessManager, message);
+        if (result.UpdateRequired)
+        {
+            using var downloadClient = new HttpClient();
+            try
+            {
+                await NdiSuite.Installation.DownloadReadiness.CheckAsync(downloadClient, WindowsInstaller, ct);
+                result = result with { DownloadReady = true };
+            }
+            catch (IOException ex) { result = result with { DownloadReady = false, Message = result.Message + " " + ex.Message }; }
+        }
+        return result;
     }
 
     public async Task DownloadAndInstallAsync(
@@ -49,24 +60,29 @@ internal sealed partial class NdiToolsService
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+            await NdiSuite.Installation.DownloadReadiness.CheckAsync(client, WindowsInstaller, ct);
             client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("NDI-Configurator-PC-Agent", UtilityVersion()));
             using var response = await client.GetAsync(WindowsInstaller, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
             if (!string.Equals(response.RequestMessage?.RequestUri?.Host, "downloads.ndi.tv", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The NDI installer download was redirected away from the official NDI download host.");
             var length = response.Content.Headers.ContentLength;
+            if (length is > 1073741824) throw new IOException("The NDI package exceeds the allowed download size.");
             await using (var source = await response.Content.ReadAsStreamAsync(ct))
             await using (var destination = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
                 var buffer = new byte[128 * 1024];
                 long total = 0;
                 int read;
-                while ((read = await source.ReadAsync(buffer, ct)) > 0)
+                while ((read = await NdiSuite.Installation.DownloadReadiness.ReadAsync(source, buffer, ct)) > 0)
                 {
                     await destination.WriteAsync(buffer.AsMemory(0, read), ct);
                     total += read;
+                    if (total > 1073741824 || length is > 0 && total > length.Value)
+                        throw new IOException("The NDI package exceeds its expected size.");
                     if (length is > 0) progress?.Report((int)Math.Min(100, total * 100 / length.Value));
                 }
+                if (length is > 0 && total != length.Value) throw new IOException("The NDI package download is incomplete. Retry the download.");
             }
             VerifyOfficialSignature(path);
 

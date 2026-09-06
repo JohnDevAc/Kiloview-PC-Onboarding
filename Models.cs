@@ -15,7 +15,8 @@ internal sealed record NdiToolsStatus(
     Version? InstalledVersion,
     Version? CurrentVersion,
     string? AccessManagerPath,
-    string Message)
+    string Message,
+    bool? DownloadReady = null)
 {
     public bool UpdateRequired => !Installed
         || CurrentVersion is not null
@@ -50,12 +51,14 @@ internal sealed record RegistrationRequest(
     string NdiToolsVersion,
     string UtilityVersion,
     string EulaVersion,
-    string OperatingSystemVersion);
+    string OperatingSystemVersion,
+    string? AttemptId = null, string? JobId = null, string? JobRevision = null);
 
 internal sealed record RemoteOnboardingOptions(
     Uri ConfiguratorBaseUri,
     string EndpointId,
-    string RequestingAddress);
+    string RequestingAddress,
+    string? AttemptId = null);
 
 internal sealed record RemoteOnboardingConfiguration(
     int SchemaVersion,
@@ -63,7 +66,8 @@ internal sealed record RemoteOnboardingConfiguration(
     string EndpointId,
     string JobName,
     string NdiDiscoveryServerIp,
-    RemoteNetworkConfiguration? Network);
+    RemoteNetworkConfiguration? Network,
+    string? AttemptId = null, string? JobId = null, string? JobRevision = null);
 
 internal sealed record RemoteNetworkConfiguration(
     string AdapterId,

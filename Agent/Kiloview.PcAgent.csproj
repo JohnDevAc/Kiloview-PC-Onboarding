@@ -21,6 +21,7 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\DownloadReadiness.cs" Link="DownloadReadiness.cs" />
     <EmbeddedResource Include="..\assets\PcAgent.ico" Link="assets\PcAgent.ico" LogicalName="KiloviewPcAgent.BrandIcon.ico" />
   </ItemGroup>
 </Project>

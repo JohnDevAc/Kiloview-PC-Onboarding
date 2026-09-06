@@ -19,9 +19,10 @@ internal sealed record AgentUpdateRelease(
 
 internal sealed record AgentUpdateCheck(
     Version CurrentVersion,
-    AgentUpdateRelease Release)
+    AgentUpdateRelease Release,
+    bool CurrentPrerelease = false)
 {
-    public bool UpdateAvailable => Release.Version > CurrentVersion;
+    public bool UpdateAvailable => Release.Version > CurrentVersion || Release.Version == CurrentVersion && CurrentPrerelease;
 }
 
 internal static class AgentUpdateService
@@ -49,7 +50,9 @@ internal static class AgentUpdateService
                 "The public update feed is not available. Confirm the GitHub repository is public and has a production release.");
         response.EnsureSuccessStatusCode();
         var payload = await ReadLimitedTextAsync(response, 1024 * 1024, ct);
-        return ParseLatestRelease(payload, CurrentVersion());
+        var check = ParseLatestRelease(payload, CurrentVersion());
+        var informational = typeof(AgentUpdateService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+        return check with { CurrentPrerelease = informational.Split('+')[0].Contains('-') };
     }
 
     public static async Task<string> DownloadAndStageAsync(
@@ -57,6 +60,8 @@ internal static class AgentUpdateService
         CancellationToken ct)
     {
         ValidateRelease(release);
+        using (var readinessClient = CreateClient())
+            await NdiSuite.Installation.DownloadReadiness.CheckAsync(readinessClient, release.PackageUrl, ct);
         var updateRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "NDI Configurator",
@@ -298,7 +303,7 @@ internal static class AgentUpdateService
         using var output = new MemoryStream(Math.Min(maximumBytes, 8192));
         var buffer = new byte[8192];
         int read;
-        while ((read = await input.ReadAsync(buffer, ct)) > 0)
+        while ((read = await NdiSuite.Installation.DownloadReadiness.ReadAsync(input, buffer, ct)) > 0)
         {
             if (output.Length + read > maximumBytes)
                 throw new InvalidOperationException("The update service response is too large.");
@@ -329,7 +334,7 @@ internal static class AgentUpdateService
         var buffer = new byte[81920];
         long total = 0;
         int read;
-        while ((read = await input.ReadAsync(buffer, ct)) > 0)
+        while ((read = await NdiSuite.Installation.DownloadReadiness.ReadAsync(input, buffer, ct)) > 0)
         {
             total += read;
             if (total > expectedSize || total > MaximumPackageBytes)

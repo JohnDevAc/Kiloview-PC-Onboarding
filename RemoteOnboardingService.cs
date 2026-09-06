@@ -24,6 +24,9 @@ internal static class RemoteOnboardingService
                 "NDI Configurator PC Agent does not have a selected production adapter. Reinstall the agent locally first.");
         var configuration = await FetchConfigurationAsync(current, options, ct);
         ValidateConfiguration(configuration, options.EndpointId);
+        if (!Guid.TryParse(options.AttemptId, out _) || configuration.AttemptId != options.AttemptId
+            || string.IsNullOrWhiteSpace(configuration.JobId) || string.IsNullOrWhiteSpace(configuration.JobRevision))
+            throw new InvalidOperationException("Update Job Configurator and request a new approved onboarding attempt before configuring this PC.");
         var plan = NetworkConfigurationService.CreatePlan(
             current,
             configuration.Network,
@@ -31,6 +34,11 @@ internal static class RemoteOnboardingService
 
         await NdiConfigurationService.PreflightAsync(ct);
         var ndi = await new NdiToolsService().CheckAsync(ct);
+        await using var mutationLock = await NdiConfigurationService.AcquireConfigurationLockAsync(ct);
+        var recovery = NetworkConfigurationService.Capture(plan);
+        var files = ConfigurationTransaction.CaptureFiles(NdiConfigurationService.ConfigurationPaths.Append(AgentInstallationService.ConfigurationPath));
+        return await ConfigurationTransaction.RunAsync(async () =>
+        {
         var network = await NetworkConfigurationService.ApplyAsync(
             plan,
             options.RequestingAddress,
@@ -43,7 +51,9 @@ internal static class RemoteOnboardingService
             configuration.JobName.Trim(),
             configuration.NdiDiscoveryServerIp,
             true);
-        await NdiConfigurationService.ApplyAsync(network, server, ct);
+        NdiConfigurationService.EnsureApplicationsClosed();
+        await NdiConfigurationService.ApplyConfigurationFilesAsync(network, server, ct,
+            AgentInstallationService.PreviousJob(server.Address));
 
         var installed = AgentInstallationService.InstallOrUpdate(network);
         if (!installed.Installed)
@@ -58,18 +68,28 @@ internal static class RemoteOnboardingService
             ndi.InstalledVersion?.ToString() ?? "not installed",
             NdiToolsService.UtilityVersion(),
             "1.0",
-            CurrentWindowsVersion());
-        await JobConfiguratorDiscovery.RegisterAsync(network, server, request, ct);
+            CurrentWindowsVersion(), configuration.AttemptId, configuration.JobId, configuration.JobRevision);
         AgentInstallationService.RecordMembership(network, server);
+        await JobConfiguratorDiscovery.RegisterAsync(network, server, request, ct);
 
         var ndiAttentionRequired = NeedsNdiAttention(ndi);
-        return new(
+        return new RemoteOnboardingResult(
             server.JobName,
             network.Address,
             network.PrefixLength,
             plan.ChangesNetwork,
             ndiAttentionRequired,
             ndi.Message);
+        }, async recoveryToken =>
+        {
+            var failures = new List<Exception>();
+            if (plan.ChangesNetwork)
+                try { await NetworkConfigurationService.RestoreAsync(recovery, options.RequestingAddress, recoveryToken); }
+                catch (Exception ex) { failures.Add(ex); }
+            try { ConfigurationTransaction.RestoreFiles(files); }
+            catch (Exception ex) { failures.Add(ex); }
+            if (failures.Count > 0) throw new AggregateException(failures);
+        });
     }
 
     internal static void ValidateConfiguration(
@@ -109,7 +129,7 @@ internal static class RemoteOnboardingService
         CancellationToken ct)
     {
         using var client = NetworkService.CreateBoundClient(current, TimeSpan.FromSeconds(10));
-        var path = $"/api/pc-onboarding/configuration/{Uri.EscapeDataString(options.EndpointId)}";
+        var path = $"/api/pc-onboarding/configuration/{Uri.EscapeDataString(options.EndpointId)}?attemptId={Uri.EscapeDataString(options.AttemptId ?? "")}";
         HttpResponseMessage response;
         try
         {

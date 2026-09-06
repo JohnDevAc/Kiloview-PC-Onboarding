@@ -82,7 +82,7 @@ internal static class Program
             ?? throw new ArgumentException("The requesting Configurator address is missing.");
         if (!Uri.TryCreate(configurator, UriKind.Absolute, out var baseUri))
             throw new UriFormatException("The remote Configurator URL is invalid.");
-        return new(baseUri, endpointId, requestingAddress);
+        return new(baseUri, endpointId, requestingAddress, Argument(args, "--attempt-id"));
     }
 
     private static string? Argument(string[] args, string name)

@@ -1,5 +1,9 @@
 # NDI Configurator PC Agent developer handoff
 
+## Interoperability implementation — 6 September 2026
+
+Uncommitted changes add `onboarding-attempt-v1`, local network/NDI recovery, original desktop-user ownership, DHCP reconciliation, bounded download readiness and complete-pair installation recovery. See [INTEROPERABILITY.md](INTEROPERABILITY.md); the owning suite's INTEROP-IMPLEMENTATION.md records cross-repository evidence. Both validation projects and self-contained package build pass with isolated state. Actual alternate-account UAC, network changes and reboot require controlled deployment acceptance. No installation, commit or release was performed; baseline notes below refer to committed releases.
+
 
 ## Aligned release baseline: 6 September 2026
 

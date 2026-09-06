@@ -113,6 +113,7 @@ internal sealed class AgentNetworkHost : IDisposable
                         "memberships-v1",
                         "open-onboarding-v1",
                         "remote-onboarding-v2",
+                        "onboarding-attempt-v1",
                         "network-config-v1",
                         "multicast-config-v1"
                     }

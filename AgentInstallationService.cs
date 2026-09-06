@@ -49,51 +49,54 @@ internal static class AgentInstallationService
         LegacyInstallDirectory,
         "Kiloview PC Agent.exe");
     private static readonly string StateDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        InteractiveProfile.LocalApplicationData,
         "NDI Configurator",
         "PC Agent");
     private static readonly string StatePath = Path.Combine(StateDirectory, "agent-state.json");
     private static readonly string LegacyStatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        InteractiveProfile.LocalApplicationData,
         "Kiloview",
         "PC Agent",
         "agent-state.json");
 
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
     {
-        var sourceAgent = ResolveAgentPayload();
-        if (sourceAgent is null)
-        {
-            return new(
-                false,
-                false,
-                "The NDI Configurator PC Agent payload is missing. Run Setup from its complete release package.");
-        }
-
         try
         {
+            using var installationLock = PackageInstallation.AcquireInstallationLock();
+            if (Directory.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery")))
+            {
+                StopInstalledAgent();
+                PackageInstallation.Recover(InstallDirectory);
+            }
+            var sourceAgent = ResolveAgentPayload()
+                ?? throw new InvalidOperationException("The PC Agent payload is missing. Run Setup from its complete release package.");
+            var runningUtility = Environment.ProcessPath
+                ?? throw new InvalidOperationException("The onboarding executable path is unavailable.");
+            var packageVersion = PackageInstallation.VersionOf(runningUtility)
+                ?? throw new InvalidOperationException("The complete Setup executable is required.");
+            if (PackageInstallation.Compare(PackageInstallation.VersionOf(sourceAgent)!, packageVersion) != 0)
+                throw new InvalidOperationException("The Agent and Setup payload versions do not match.");
+            var retain = PackageInstallation.Retain(PackageInstallation.VersionOf(InstalledAgentPath),
+                PackageInstallation.VersionOf(InstalledUtilityPath), packageVersion);
             Directory.CreateDirectory(InstallDirectory);
             Directory.CreateDirectory(StateDirectory);
             MigrateLegacyState();
-            var agentChanged = !PublishedFilesMatch(
+            var agentChanged = !retain && !PublishedFilesMatch(
                 Path.GetDirectoryName(sourceAgent)!,
                 Path.GetFileNameWithoutExtension(sourceAgent));
-            if (agentChanged)
+            if (!retain)
             {
-                StopInstalledAgent();
-                CopyPublishedFiles(
-                    Path.GetDirectoryName(sourceAgent)!,
-                    Path.GetFileNameWithoutExtension(sourceAgent));
+                var executables = new List<string>();
+                if (agentChanged) executables.Add(sourceAgent);
+                if (!PublishedFilesMatch(Path.GetDirectoryName(runningUtility)!, Path.GetFileNameWithoutExtension(runningUtility)))
+                    executables.Add(runningUtility);
+                var sources = executables
+                    .SelectMany(exe => Directory.EnumerateFiles(Path.GetDirectoryName(exe)!, Path.GetFileNameWithoutExtension(exe) + ".*"))
+                    .Where(source => !Path.GetFullPath(source).Equals(Path.Combine(InstallDirectory, Path.GetFileName(source)), StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(source => Path.Combine(InstallDirectory, Path.GetFileName(source)), source => source, StringComparer.OrdinalIgnoreCase);
+                if (sources.Count > 0) PackageInstallation.Replace(sources, () => { if (agentChanged) StopInstalledAgent(); });
             }
-
-            var runningUtility = Environment.ProcessPath
-                ?? throw new InvalidOperationException("The onboarding executable path is unavailable.");
-            if (!Path.GetFullPath(runningUtility).Equals(
-                Path.GetFullPath(InstalledUtilityPath),
-                StringComparison.OrdinalIgnoreCase))
-                CopyPublishedFiles(
-                    Path.GetDirectoryName(runningUtility)!,
-                    Path.GetFileNameWithoutExtension(runningUtility));
 
             if (network is not null) UpdateConfiguration(network, null);
             ConfigureStartup();
@@ -114,6 +117,7 @@ internal static class AgentInstallationService
         }
         catch (Exception ex)
         {
+            try { StartAgentIfNeeded(); } catch { /* The installation error remains primary. */ }
             return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}");
         }
     }
@@ -121,18 +125,20 @@ internal static class AgentInstallationService
     public static NetworkChoice? PreferredNetwork()
     {
         var state = ReadState();
-        return state is null
-            ? null
-            : new NetworkChoice(
-                state.AdapterId,
-                state.AdapterName,
-                state.AdapterName,
-                state.Address,
-                state.PrefixLength);
+        if (state is not null)
+        {
+            var choices = NetworkService.GetChoices().Where(n => n.Id.Equals(state.AdapterId, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var exact = choices.FirstOrDefault(n => n.Address == state.Address);
+            if (exact is not null) return exact;
+            if (choices.Length == 1) return choices[0];
+            return null;
+        }
+        return null;
     }
 
     public static bool IsConfigured() => ReadState() is not null
         && (File.Exists(InstalledAgentPath) || File.Exists(LegacyInstalledAgentPath));
+    internal static string ConfigurationPath => StatePath;
 
     internal static bool IsInstalledUtility(string? executable) => executable is not null
         && string.Equals(Path.GetFullPath(executable), InstalledUtilityPath, StringComparison.OrdinalIgnoreCase)
@@ -243,7 +249,8 @@ internal static class AgentInstallationService
 
     private static void ConfigureStartup()
     {
-        using var run = Registry.CurrentUser.CreateSubKey(
+        using var userHive = InteractiveProfile.OpenUserHive();
+        using var run = userHive.CreateSubKey(
             @"Software\Microsoft\Windows\CurrentVersion\Run",
             writable: true)
             ?? throw new InvalidOperationException("The Windows startup registry key could not be opened.");
@@ -276,14 +283,14 @@ internal static class AgentInstallationService
             17,
             DiscoveryPort,
             network.Address,
-            remoteSubnet);
+            remoteSubnet, network.Name);
         AddOrReplaceFirewallRule(
             ApiRuleName,
             "Allows NDI Job Configurator to read NDI Configurator PC Agent monitoring status on the selected production subnet.",
             6,
             ApiPort,
             network.Address,
-            remoteSubnet);
+            remoteSubnet, network.Name);
     }
 
     private static void AddOrReplaceFirewallRule(
@@ -292,7 +299,8 @@ internal static class AgentInstallationService
         int protocol,
         int localPort,
         string localAddress,
-        string remoteAddress)
+        string remoteAddress,
+        string interfaceName)
     {
         object? policy = null;
         object? rules = null;
@@ -314,8 +322,12 @@ internal static class AgentInstallationService
             configured.Direction = InboundDirection;
             configured.Action = AllowAction;
             configured.Profiles = AllProfiles;
-            configured.LocalAddresses = localAddress;
-            configured.RemoteAddresses = remoteAddress;
+            // Interface and application scope survive DHCP leases; the API also checks
+            // the selected adapter's current subnet on every request.
+            configured.LocalAddresses = "*";
+            configured.RemoteAddresses = "LocalSubnet";
+            configured.Interfaces = new[] { interfaceName };
+            configured.ApplicationName = InstalledAgentPath;
             configured.EdgeTraversal = false;
             configured.Enabled = true;
 

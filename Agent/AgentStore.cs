@@ -109,6 +109,20 @@ internal static class AgentStore
         }
     }
 
+    internal static void ReconcileAddress(AgentConfiguration expected, AgentConfiguration actual)
+    {
+        using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(5))) return;
+        try
+        {
+            var current = Read();
+            if (current?.EndpointId != expected.EndpointId || current.AdapterId != expected.AdapterId
+                || current.UpdatedUtc != expected.UpdatedUtc) return;
+            Write(current with { Address = actual.Address, PrefixLength = actual.PrefixLength, UpdatedUtc = DateTimeOffset.UtcNow });
+        }
+        finally { mutex.ReleaseMutex(); }
+    }
+
     private static void Write(AgentConfiguration state)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(StatePath)

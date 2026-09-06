@@ -69,6 +69,21 @@ internal sealed class AgentApplicationContext : ApplicationContext
         var updated = AgentStore.Read();
         if (updated is null)
             return;
+        var actual = AgentAddressResolver.Resolve(updated);
+        if (actual is null)
+        {
+            _networkHost?.Dispose();
+            _networkHost = null;
+            _tray.Text = "NDI Configurator PC Agent - selected network unavailable";
+            BuildMenu();
+            return;
+        }
+        if (actual.Address != updated.Address || actual.PrefixLength != updated.PrefixLength)
+        {
+            AgentStore.ReconcileAddress(updated, actual);
+            updated = AgentStore.Read() ?? actual;
+            _tray.ShowBalloonTip(5000, "Production address changed", "Monitoring has followed the selected adapter. Reapply job onboarding if NDI settings report drift.", ToolTipIcon.Info);
+        }
         if (updated.UpdatedUtc == _configuration.UpdatedUtc)
         {
             if (_networkHost is null)
@@ -88,6 +103,13 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _networkHost = null;
         try
         {
+            var actual = AgentAddressResolver.Resolve(_configuration);
+            if (actual is null) throw new InvalidOperationException("The selected adapter has no unambiguous usable IPv4 address.");
+            if (actual.Address != _configuration.Address || actual.PrefixLength != _configuration.PrefixLength)
+            {
+                AgentStore.ReconcileAddress(_configuration, actual);
+                _configuration = AgentStore.Read() ?? actual;
+            }
             _networkHost = new AgentNetworkHost(
                 () => _configuration,
                 ConfirmRemoteLaunchAsync,
@@ -106,13 +128,14 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 $"The selected interface could not be opened: {ex.Message}",
                 ToolTipIcon.Warning);
         }
+        BuildMenu();
     }
 
     private void BuildMenu()
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem(
-            $"Online - {_configuration.AdapterName} - {_configuration.Address}/{_configuration.PrefixLength}")
+            $"{(_networkHost is null ? "Network unavailable" : "Online")} - {_configuration.AdapterName} - {_configuration.Address}/{_configuration.PrefixLength}")
         {
             Enabled = false
         });
@@ -216,7 +239,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 _ = OpenRemoteOnboardingUtility(
                     request.ConfiguratorUrl,
                     request.RemoteAddress,
-                    _configuration.EndpointId);
+                    _configuration.EndpointId, request.AttemptId);
             }
             finally
             {
@@ -390,7 +413,8 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private static bool OpenRemoteOnboardingUtility(
         string? configuratorUrl,
         string requestingAddress,
-        string endpointId)
+        string endpointId,
+        string? attemptId)
     {
         try
         {
@@ -411,6 +435,11 @@ internal sealed class AgentApplicationContext : ApplicationContext
             start.ArgumentList.Add(requestingAddress);
             start.ArgumentList.Add("--endpoint-id");
             start.ArgumentList.Add(endpointId);
+            if (attemptId is not null)
+            {
+                start.ArgumentList.Add("--attempt-id");
+                start.ArgumentList.Add(attemptId);
+            }
             Process.Start(start);
             return true;
         }
