@@ -39,6 +39,12 @@ var configuration = new AgentConfiguration(
         "Studio A",
         DateTimeOffset.UtcNow)]);
 var testRoot = Path.Combine(Path.GetTempPath(), $"Kiloview-Agent-Multicast-{Guid.NewGuid():N}");
+var moved = AgentAddressResolver.Select(configuration, [("192.0.2.200", 23)]);
+if (moved?.Address != "192.0.2.200" || moved.EndpointId != configuration.EndpointId || moved.AdapterId != configuration.AdapterId)
+    throw new Exception("DHCP reconciliation lost the selected adapter or endpoint identity.");
+if (AgentAddressResolver.Select(configuration, []) is not null || AgentAddressResolver.Select(configuration, [("192.0.2.2",24),("192.0.2.3",24)]) is not null)
+    throw new Exception("Missing or ambiguous adapter addresses were silently selected.");
+Console.WriteLine("AGENT_DHCP_IDENTITY_RECONCILIATION=PASS");
 Directory.CreateDirectory(testRoot);
 var releaseDigest = new string('A', 64);
 var releaseJson = JsonSerializer.Serialize(new
@@ -74,6 +80,8 @@ Require(
 Require(
     !AgentUpdateService.ParseLatestRelease(releaseJson, new Version(0, 6, 0)).UpdateAvailable,
     "The installed release was incorrectly reported as an update.");
+Require((AgentUpdateService.ParseLatestRelease(releaseJson, new Version(0, 6, 0)) with { CurrentPrerelease = true }).UpdateAvailable,
+    "An equal-core stable release must follow a development build.");
 Require(
     AgentUpdateService.ParseInstalledVersion("0.6.0-dev.1") == new Version(0, 6, 0),
     "A development build version could not be normalized for production update comparison.");
@@ -136,6 +144,18 @@ Environment.SetEnvironmentVariable("KILOVIEW_AGENT_AUDIT_PATH", auditPath);
 Environment.SetEnvironmentVariable("KILOVIEW_NDI_SKIP_PROCESS_CHECK", "1");
 var testJson = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
 await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(configuration, testJson));
+foreach (var invalid in new[] { configuration with { SchemaVersion = 2 }, configuration with { EndpointId = Guid.Empty.ToString() },
+    configuration with { AdapterId = "" }, configuration with { Address = "127.0.0.1" }, configuration with { PrefixLength = 0 },
+    configuration with { Memberships = null! } })
+{
+    await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(invalid, testJson));
+    if (AgentStore.Read() is not null) throw new Exception("Invalid persisted Agent identity was accepted.");
+    try { AgentMonitor.Snapshot(configuration, DateTimeOffset.UtcNow); throw new Exception("Monitoring advertised stale identity after state became invalid."); }
+    catch (AgentApiException ex) when (ex.StatusCode == 503) { }
+}
+await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(configuration, testJson));
+if (AgentStore.Read() is null) throw new Exception("Valid persisted Agent configuration was rejected.");
+Console.WriteLine("AGENT_PERSISTED_IDENTITY_VALIDATION=PASS");
 await File.WriteAllTextAsync(
     ndiPath,
     """
@@ -300,7 +320,8 @@ using var approvedLaunch = await client.PostAsJsonAsync(
         serverName = "TEST-SERVER",
         serverAddress = "203.0.113.11",
         jobName = "Approved remote onboarding",
-        configuratorUrl = $"http://{adapter.Address}:8091/"
+        configuratorUrl = $"http://{adapter.Address}:8091/",
+        attemptId = "cb5311ad-6633-4f2f-8184-c5d081df27ed"
     });
 Require(
     approvedLaunch.StatusCode == HttpStatusCode.Accepted,
@@ -312,6 +333,7 @@ var deferredLaunch = await approvedLaunchStarted.Task.WaitAsync(TimeSpan.FromSec
 Require(
     deferredLaunch.JobName == "Approved remote onboarding",
     "The deferred elevated launch did not retain its approved request.");
+Require(deferredLaunch.AttemptId == "cb5311ad-6633-4f2f-8184-c5d081df27ed", "Deferred approval lost its attempt identity.");
 
 var multicastRequest = new
 {

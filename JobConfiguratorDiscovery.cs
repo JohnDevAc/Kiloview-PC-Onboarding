@@ -17,10 +17,14 @@ internal static class JobConfiguratorDiscovery
         var found = new List<JobConfiguratorInstance>();
         var gate = new object();
         var completed = 0;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromMinutes(4));
         using var client = NetworkService.CreateBoundClient(network, TimeSpan.FromMilliseconds(1400));
+        try
+        {
         await Parallel.ForEachAsync(
             addresses,
-            new ParallelOptions { MaxDegreeOfParallelism = 48, CancellationToken = ct },
+            new ParallelOptions { MaxDegreeOfParallelism = 48, CancellationToken = budget.Token },
             async (address, token) =>
             {
                 try
@@ -43,6 +47,9 @@ internal static class JobConfiguratorDiscovery
                     progress?.Report(count * 100 / Math.Max(1, addresses.Length));
                 }
             });
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        { throw new IOException($"Configurator discovery is incomplete: {completed}/{addresses.Length} addresses attempted before the four-minute limit. Retry on a responsive network."); }
         return found.OrderBy(item => item.JobName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Address, StringComparer.Ordinal)
             .ToArray();
@@ -52,9 +59,23 @@ internal static class JobConfiguratorDiscovery
         NetworkChoice network,
         JobConfiguratorInstance server,
         RegistrationRequest request,
-        CancellationToken ct)
+        CancellationToken ct,
+        HttpClient? transport = null)
     {
-        using var client = NetworkService.CreateBoundClient(network, TimeSpan.FromSeconds(10));
+        for (var attempt = 0; ; attempt++)
+        {
+            try { await RegisterOnceAsync(network, server, request, ct, transport); return; }
+            catch (Exception ex) when (attempt < 2 && !ct.IsCancellationRequested
+                && ex is HttpRequestException or TaskCanceledException)
+            { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
+        }
+    }
+
+    private static async Task RegisterOnceAsync(
+        NetworkChoice network, JobConfiguratorInstance server, RegistrationRequest request, CancellationToken ct, HttpClient? transport)
+    {
+        using var owned = transport is null ? NetworkService.CreateBoundClient(network, TimeSpan.FromSeconds(10)) : null;
+        var client = transport ?? owned!;
         using var response = await client.PostAsJsonAsync(
             new Uri(server.BaseUri, "/api/pc-onboarding/register"),
             request,

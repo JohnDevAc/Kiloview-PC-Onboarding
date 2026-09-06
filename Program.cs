@@ -7,6 +7,28 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        try
+        {
+            var recovery = args.FirstOrDefault() == "--recover-installed-package";
+            if (recovery) DeferredPackageRecovery.WaitForParent(args);
+            using var operation = SetupOperationLease.Acquire();
+            if (recovery) return AgentInstallationService.RecoverInstalledPackage();
+            return Run(args);
+        }
+        catch (Exception ex)
+        {
+            if (args.Contains("--server-command", StringComparer.Ordinal))
+                Console.Write(System.Text.Json.JsonSerializer.Serialize(new ServerOnboardingResponse(
+                    1, false, NdiToolsService.UtilityVersion(), Error: ex.Message),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+            else
+                MessageBox.Show(ex.Message, "NDI Configurator PC Agent Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return 1;
+        }
+    }
+
+    private static int Run(string[] args)
+    {
         if (args.Contains("--server-command", StringComparer.Ordinal))
             return ServerOnboardingCommand.RunAsync().GetAwaiter().GetResult();
         ApplicationConfiguration.Initialize();
@@ -82,7 +104,7 @@ internal static class Program
             ?? throw new ArgumentException("The requesting Configurator address is missing.");
         if (!Uri.TryCreate(configurator, UriKind.Absolute, out var baseUri))
             throw new UriFormatException("The remote Configurator URL is invalid.");
-        return new(baseUri, endpointId, requestingAddress);
+        return new(baseUri, endpointId, requestingAddress, Argument(args, "--attempt-id"));
     }
 
     private static string? Argument(string[] args, string name)

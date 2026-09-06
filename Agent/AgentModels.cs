@@ -26,7 +26,8 @@ internal sealed record OnboardingLaunchRequest(
     string? ServerAddress,
     string? JobName,
     string? ConfiguratorUrl,
-    string RemoteAddress);
+    string RemoteAddress,
+    string? AttemptId = null);
 
 internal sealed record NdiSnapshot(bool Installed, string? Version);
 

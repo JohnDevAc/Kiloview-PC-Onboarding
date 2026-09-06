@@ -23,9 +23,6 @@ internal static class AgentInstallationService
     private const string LegacyPingRuleName = "Kiloview PC Onboarding - ICMPv4 Echo";
     private const string RunValueName = "NDI Configurator PC Agent";
     private const string LegacyRunValueName = "Kiloview PC Agent";
-    private const int InboundDirection = 1;
-    private const int AllowAction = 1;
-    private const int AllProfiles = int.MaxValue;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -49,51 +46,55 @@ internal static class AgentInstallationService
         LegacyInstallDirectory,
         "Kiloview PC Agent.exe");
     private static readonly string StateDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        InteractiveProfile.LocalApplicationData,
         "NDI Configurator",
         "PC Agent");
     private static readonly string StatePath = Path.Combine(StateDirectory, "agent-state.json");
     private static readonly string LegacyStatePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        InteractiveProfile.LocalApplicationData,
         "Kiloview",
         "PC Agent",
         "agent-state.json");
 
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
     {
-        var sourceAgent = ResolveAgentPayload();
-        if (sourceAgent is null)
-        {
-            return new(
-                false,
-                false,
-                "The NDI Configurator PC Agent payload is missing. Run Setup from its complete release package.");
-        }
-
+        IDisposable? installationLock = null;
         try
         {
+            installationLock = PackageInstallation.AcquireInstallationLock();
+            if (Directory.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery")))
+            {
+                StopInstalledAgent();
+                PackageInstallation.Recover(InstallDirectory);
+            }
+            var sourceAgent = ResolveAgentPayload()
+                ?? throw new InvalidOperationException("The PC Agent payload is missing. Run Setup from its complete release package.");
+            var runningUtility = Environment.ProcessPath
+                ?? throw new InvalidOperationException("The onboarding executable path is unavailable.");
+            var packageVersion = PackageInstallation.VersionOf(runningUtility)
+                ?? throw new InvalidOperationException("The complete Setup executable is required.");
+            if (PackageInstallation.Compare(PackageInstallation.VersionOf(sourceAgent)!, packageVersion) != 0)
+                throw new InvalidOperationException("The Agent and Setup payload versions do not match.");
+            var retain = PackageInstallation.Retain(PackageInstallation.VersionOf(InstalledAgentPath),
+                PackageInstallation.VersionOf(InstalledUtilityPath), packageVersion);
             Directory.CreateDirectory(InstallDirectory);
             Directory.CreateDirectory(StateDirectory);
             MigrateLegacyState();
-            var agentChanged = !PublishedFilesMatch(
+            var agentChanged = !retain && !PublishedFilesMatch(
                 Path.GetDirectoryName(sourceAgent)!,
                 Path.GetFileNameWithoutExtension(sourceAgent));
-            if (agentChanged)
+            if (!retain)
             {
-                StopInstalledAgent();
-                CopyPublishedFiles(
-                    Path.GetDirectoryName(sourceAgent)!,
-                    Path.GetFileNameWithoutExtension(sourceAgent));
+                var executables = new List<string>();
+                if (agentChanged) executables.Add(sourceAgent);
+                if (!PublishedFilesMatch(Path.GetDirectoryName(runningUtility)!, Path.GetFileNameWithoutExtension(runningUtility)))
+                    executables.Add(runningUtility);
+                var sources = executables
+                    .SelectMany(exe => Directory.EnumerateFiles(Path.GetDirectoryName(exe)!, Path.GetFileNameWithoutExtension(exe) + ".*"))
+                    .Where(source => !Path.GetFullPath(source).Equals(Path.Combine(InstallDirectory, Path.GetFileName(source)), StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(source => Path.Combine(InstallDirectory, Path.GetFileName(source)), source => source, StringComparer.OrdinalIgnoreCase);
+                if (sources.Count > 0) PackageInstallation.Replace(sources, () => { if (agentChanged) StopInstalledAgent(); });
             }
-
-            var runningUtility = Environment.ProcessPath
-                ?? throw new InvalidOperationException("The onboarding executable path is unavailable.");
-            if (!Path.GetFullPath(runningUtility).Equals(
-                Path.GetFullPath(InstalledUtilityPath),
-                StringComparison.OrdinalIgnoreCase))
-                CopyPublishedFiles(
-                    Path.GetDirectoryName(runningUtility)!,
-                    Path.GetFileNameWithoutExtension(runningUtility));
 
             if (network is not null) UpdateConfiguration(network, null);
             ConfigureStartup();
@@ -114,25 +115,52 @@ internal static class AgentInstallationService
         }
         catch (Exception ex)
         {
+            if (ex is PackageInstallation.RunningSetupRecoveryException)
+            {
+                DeferredPackageRecovery.Queue(InstallDirectory);
+                return new(false, false, "Package recovery will finish after this Setup closes. Close this window, then retry onboarding or setup.");
+            }
+            // A timed-out contender must not restart a process that the owner is replacing.
+            if (installationLock is not null && !File.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery", "manifest.json"))
+                && PackageInstallation.VersionOf(InstalledAgentPath) is { } agentVersion
+                && PackageInstallation.VersionOf(InstalledUtilityPath) is { } setupVersion
+                && PackageInstallation.Compare(agentVersion, setupVersion) == 0)
+                try { StartAgentIfNeeded(); } catch { /* The installation error remains primary. */ }
             return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}");
         }
+        finally { installationLock?.Dispose(); }
+    }
+
+    internal static int RecoverInstalledPackage()
+    {
+        using var installationLock = PackageInstallation.AcquireInstallationLock();
+        StopInstalledAgent();
+        PackageInstallation.Recover(InstallDirectory);
+        var agent = PackageInstallation.VersionOf(InstalledAgentPath);
+        var setup = PackageInstallation.VersionOf(InstalledUtilityPath);
+        if (agent is null || setup is null || PackageInstallation.Compare(agent, setup) != 0)
+            throw new IOException("Package recovery requires a matching complete Agent and Setup pair.");
+        StartAgentIfNeeded();
+        return 0;
     }
 
     public static NetworkChoice? PreferredNetwork()
     {
         var state = ReadState();
-        return state is null
-            ? null
-            : new NetworkChoice(
-                state.AdapterId,
-                state.AdapterName,
-                state.AdapterName,
-                state.Address,
-                state.PrefixLength);
+        if (state is not null)
+        {
+            var choices = NetworkService.GetChoices().Where(n => n.Id.Equals(state.AdapterId, StringComparison.OrdinalIgnoreCase)).ToArray();
+            var exact = choices.FirstOrDefault(n => n.Address == state.Address);
+            if (exact is not null) return exact;
+            if (choices.Length == 1) return choices[0];
+            return null;
+        }
+        return null;
     }
 
     public static bool IsConfigured() => ReadState() is not null
         && (File.Exists(InstalledAgentPath) || File.Exists(LegacyInstalledAgentPath));
+    internal static string ConfigurationPath => StatePath;
 
     internal static bool IsInstalledUtility(string? executable) => executable is not null
         && string.Equals(Path.GetFullPath(executable), InstalledUtilityPath, StringComparison.OrdinalIgnoreCase)
@@ -207,9 +235,12 @@ internal static class AgentInstallationService
             var path = File.Exists(StatePath)
                 ? StatePath
                 : LegacyStatePath;
-            return File.Exists(path)
+            var state = File.Exists(path)
                 ? JsonSerializer.Deserialize<AgentState>(File.ReadAllText(path), Json)
                 : null;
+            return state is not null && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
+                state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
+                && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName)) ? state : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -243,7 +274,8 @@ internal static class AgentInstallationService
 
     private static void ConfigureStartup()
     {
-        using var run = Registry.CurrentUser.CreateSubKey(
+        using var userHive = InteractiveProfile.OpenUserHive();
+        using var run = userHive.CreateSubKey(
             @"Software\Microsoft\Windows\CurrentVersion\Run",
             writable: true)
             ?? throw new InvalidOperationException("The Windows startup registry key could not be opened.");
@@ -269,21 +301,18 @@ internal static class AgentInstallationService
 
     private static void ConfigureLanRules(NetworkChoice network)
     {
-        var remoteSubnet = NetworkCidr(network);
         AddOrReplaceFirewallRule(
             DiscoveryRuleName,
             "Allows NDI Job Configurator discovery requests from the selected production subnet.",
             17,
             DiscoveryPort,
-            network.Address,
-            remoteSubnet);
+            network.Name);
         AddOrReplaceFirewallRule(
             ApiRuleName,
             "Allows NDI Job Configurator to read NDI Configurator PC Agent monitoring status on the selected production subnet.",
             6,
             ApiPort,
-            network.Address,
-            remoteSubnet);
+            network.Name);
     }
 
     private static void AddOrReplaceFirewallRule(
@@ -291,8 +320,7 @@ internal static class AgentInstallationService
         string description,
         int protocol,
         int localPort,
-        string localAddress,
-        string remoteAddress)
+        string interfaceName)
     {
         object? policy = null;
         object? rules = null;
@@ -309,15 +337,8 @@ internal static class AgentInstallationService
             dynamic configured = rule!;
             configured.Name = name;
             configured.Description = description;
-            configured.Protocol = protocol;
-            configured.LocalPorts = localPort.ToString();
-            configured.Direction = InboundDirection;
-            configured.Action = AllowAction;
-            configured.Profiles = AllProfiles;
-            configured.LocalAddresses = localAddress;
-            configured.RemoteAddresses = remoteAddress;
-            configured.EdgeTraversal = false;
-            configured.Enabled = true;
+            var expected = new AgentFirewallPolicy(protocol, localPort, interfaceName, InstalledAgentPath);
+            expected.Apply(rule!);
 
             object? existing = null;
             var existingRuleFound = false;
@@ -343,10 +364,7 @@ internal static class AgentInstallationService
             if (!FirewallRuleMatches(
                 rules,
                 name,
-                protocol,
-                localPort,
-                localAddress,
-                remoteAddress))
+                expected))
                 throw new InvalidOperationException($"Windows did not retain the {name} firewall rule settings.");
         }
         finally
@@ -488,27 +506,13 @@ internal static class AgentInstallationService
     private static bool FirewallRuleMatches(
         object rules,
         string name,
-        int protocol,
-        int localPort,
-        string localAddress,
-        string remoteAddress)
+        AgentFirewallPolicy expected)
     {
         object? existing = null;
         try
         {
             existing = ((dynamic)rules).Item(name);
-            dynamic configured = existing;
-            return configured.Enabled
-                && (int)configured.Protocol == protocol
-                && (int)configured.Direction == InboundDirection
-                && (int)configured.Action == AllowAction
-                && ((int)configured.Profiles & 7) == 7
-                && string.Equals(
-                    (string)configured.LocalPorts,
-                    localPort.ToString(),
-                    StringComparison.Ordinal)
-                && AddressListContains((string)configured.LocalAddresses, localAddress)
-                && AddressListContains((string)configured.RemoteAddresses, remoteAddress);
+            return expected.Matches(existing);
         }
         catch
         {

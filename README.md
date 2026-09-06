@@ -1,5 +1,7 @@
 # NDI Configurator PC Agent
 
+See [suite interoperability](INTEROPERABILITY.md) for remote attempt identity, address recovery, user ownership, offline installation and compatibility.
+
 Copyright © 2026 John Lightfoot. This is proprietary software made available
 free of charge for non-commercial use only. Commercial use requires separate
 written permission or a commercial licence. See [LICENSE.md](LICENSE.md).

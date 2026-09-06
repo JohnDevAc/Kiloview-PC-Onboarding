@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using NdiSuite.Onboarding;
 
 namespace KiloviewPcAgent;
 
@@ -19,6 +20,8 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private ToolStripMenuItem? _updateMenuItem;
     private bool _remoteLaunchPending;
     private bool _updatePending;
+    private bool _outcomeReporting;
+    private readonly Dictionary<string, string> _outcomeWarnings = new();
 
     public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
     {
@@ -46,6 +49,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _activationTimer.Start();
         BuildMenu();
         StartNetworkHost();
+        _ = ReconcileOutcomeAsync(_configuration);
     }
 
     protected override void ExitThreadCore()
@@ -68,7 +72,29 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         var updated = AgentStore.Read();
         if (updated is null)
+        {
+            _networkHost?.Dispose();
+            _networkHost = null;
+            _tray.Text = "NDI Configurator PC Agent - configuration needs repair";
+            BuildMenu();
             return;
+        }
+        var actual = AgentAddressResolver.Resolve(updated);
+        if (actual is null)
+        {
+            _networkHost?.Dispose();
+            _networkHost = null;
+            _tray.Text = "NDI Configurator PC Agent - selected network unavailable";
+            BuildMenu();
+            return;
+        }
+        if (actual.Address != updated.Address || actual.PrefixLength != updated.PrefixLength)
+        {
+            AgentStore.ReconcileAddress(updated, actual);
+            updated = AgentStore.Read() ?? actual;
+            _tray.ShowBalloonTip(5000, "Production address changed", "Monitoring has followed the selected adapter. Reapply job onboarding if NDI settings report drift.", ToolTipIcon.Info);
+        }
+        _ = ReconcileOutcomeAsync(updated);
         if (updated.UpdatedUtc == _configuration.UpdatedUtc)
         {
             if (_networkHost is null)
@@ -88,6 +114,13 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _networkHost = null;
         try
         {
+            var actual = AgentAddressResolver.Resolve(_configuration);
+            if (actual is null) throw new InvalidOperationException("The selected adapter has no unambiguous usable IPv4 address.");
+            if (actual.Address != _configuration.Address || actual.PrefixLength != _configuration.PrefixLength)
+            {
+                AgentStore.ReconcileAddress(_configuration, actual);
+                _configuration = AgentStore.Read() ?? actual;
+            }
             _networkHost = new AgentNetworkHost(
                 () => _configuration,
                 ConfirmRemoteLaunchAsync,
@@ -106,13 +139,63 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 $"The selected interface could not be opened: {ex.Message}",
                 ToolTipIcon.Warning);
         }
+        BuildMenu();
+    }
+
+    private async Task ReconcileOutcomeAsync(AgentConfiguration configuration)
+    {
+        if (_outcomeReporting || _lifetime.IsCancellationRequested) return;
+        _outcomeReporting = true;
+        try
+        {
+            using var operation = KiloviewPcOnboarding.SetupOperationLease.TryAcquireForReconciliation();
+            if (operation is null) return;
+            var invalid = new List<string>();
+            var outcomes = OnboardingOutcomes.ReadAll(AgentStore.ConfigurationPath, invalid.Add);
+            if (invalid.Count > 0) WarnOutcome("Saved onboarding outcome needs repair", string.Join(Environment.NewLine, invalid));
+            else _outcomeWarnings.Remove("Saved onboarding outcome needs repair");
+            var outcome = OnboardingOutcomes.SelectNext(outcomes, configuration.EndpointId, configuration.AdapterId, _lastOutcomeAttempt);
+            var actual = AgentAddressResolver.Resolve(configuration);
+            if (outcome is null || actual is null) return;
+            // One bounded request per timer tick; an offline old job cannot starve
+            // confirmation to a different server or a later approved attempt.
+            _lastOutcomeAttempt = outcome.AttemptId;
+            if (outcome.Outcome == "applying")
+            {
+                outcome = outcome with { Outcome = "recovery-required", UpdatedUtc = DateTimeOffset.UtcNow };
+                OnboardingOutcomes.Write(AgentStore.ConfigurationPath, outcome);
+            }
+            using var client = OnboardingOutcomes.CreateClient(actual.Address);
+            var status = await OnboardingOutcomes.SendAsync(client, outcome, _lifetime.Token);
+            OnboardingOutcomes.Acknowledge(AgentStore.ConfigurationPath, outcome);
+            _outcomeWarnings.Remove("Onboarding confirmation pending");
+            if (_lifetime.IsCancellationRequested || _dispatcher.IsDisposed) return;
+            _tray.ShowBalloonTip(7000, "PC onboarding outcome",
+                status == "completed" ? "Job Configurator confirmed this PC's completed onboarding."
+                : status == "aborted" ? "Job Configurator confirmed that onboarding was rolled back."
+                : "The previous onboarding needs fresh local approval or repair. Request onboarding for the current job.",
+                status is "completed" or "aborted" ? ToolTipIcon.Info : ToolTipIcon.Warning);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            WarnOutcome("Onboarding confirmation pending", "PC Agent will retry its saved outcome when Job Configurator is reachable. " + ex.Message);
+        }
+        finally { _outcomeReporting = false; }
+    }
+
+    private string? _lastOutcomeAttempt;
+    private void WarnOutcome(string title, string message)
+    {
+        if (_lifetime.IsCancellationRequested || _dispatcher.IsDisposed || _outcomeWarnings.GetValueOrDefault(title) == message) return;
+        _outcomeWarnings[title] = message;
+        _tray.ShowBalloonTip(7000, title, message, ToolTipIcon.Warning);
     }
 
     private void BuildMenu()
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add(new ToolStripMenuItem(
-            $"Online - {_configuration.AdapterName} - {_configuration.Address}/{_configuration.PrefixLength}")
+            $"{(_networkHost is null ? "Network unavailable" : "Online")} - {_configuration.AdapterName} - {_configuration.Address}/{_configuration.PrefixLength}")
         {
             Enabled = false
         });
@@ -209,22 +292,24 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         if (_dispatcher.IsDisposed)
             return;
-        _dispatcher.BeginInvoke(() =>
+        _dispatcher.BeginInvoke((Action)(async () =>
         {
             try
             {
-                _ = OpenRemoteOnboardingUtility(
+                using var process = OpenRemoteOnboardingUtility(
                     request.ConfiguratorUrl,
                     request.RemoteAddress,
-                    _configuration.EndpointId);
+                    _configuration.EndpointId, request.AttemptId);
+                if (process is not null) await process.WaitForExitAsync(_lifetime.Token);
             }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
             finally
             {
                 _remoteLaunchPending = false;
-                if (_updateMenuItem is not null)
+                if (!_dispatcher.IsDisposed && _updateMenuItem is not null)
                     _updateMenuItem.Enabled = true;
             }
-        });
+        }));
     }
 
     private async Task CheckForUpdatesAsync()
@@ -387,10 +472,11 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
     }
 
-    private static bool OpenRemoteOnboardingUtility(
+    private static Process? OpenRemoteOnboardingUtility(
         string? configuratorUrl,
         string requestingAddress,
-        string endpointId)
+        string endpointId,
+        string? attemptId)
     {
         try
         {
@@ -411,13 +497,17 @@ internal sealed class AgentApplicationContext : ApplicationContext
             start.ArgumentList.Add(requestingAddress);
             start.ArgumentList.Add("--endpoint-id");
             start.ArgumentList.Add(endpointId);
-            Process.Start(start);
-            return true;
+            if (attemptId is not null)
+            {
+                start.ArgumentList.Add("--attempt-id");
+                start.ArgumentList.Add(attemptId);
+            }
+            return Process.Start(start);
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
+            return null;
         }
     }
 

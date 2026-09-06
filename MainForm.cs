@@ -244,7 +244,7 @@ internal sealed class MainForm : Form
         _refreshNetwork.Click += (_, _) => LoadNetworks();
         _ndiAction.Click += async (_, _) =>
         {
-            if (_ndi?.UpdateRequired == true) await InstallNdiAsync();
+            if (_ndi?.UpdateRequired == true && _ndi.DownloadReady != false) await InstallNdiAsync();
             else await CheckNdiAsync();
             if (_network.SelectedItem is NetworkChoice && _ndi?.UpdateRequired == false)
                 await ScanAsync();
@@ -401,7 +401,7 @@ internal sealed class MainForm : Form
 
     private void UpdateNdiActionHint()
     {
-        var action = _ndi?.UpdateRequired == true
+        var action = _ndi?.DownloadReady == false ? "Retry NDI download check" : _ndi?.UpdateRequired == true
             ? _ndi.Installed ? "Update NDI Tools" : "Install NDI Tools"
             : "Check NDI Tools again";
         _ndiAction.AccessibleName = action;
@@ -458,7 +458,7 @@ internal sealed class MainForm : Form
 
     private static string ScanDescription(NetworkChoice network)
     {
-        var prefix = Math.Clamp(network.PrefixLength, 24, 30);
+        var prefix = network.PrefixLength;
         var parts = network.Address.Split('.');
         return prefix == 24 && parts.Length == 4
             ? $"{parts[0]}.{parts[1]}.{parts[2]}.0/24"

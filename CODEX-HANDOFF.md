@@ -1,5 +1,17 @@
 # NDI Configurator PC Agent developer handoff
 
+## Further QA corrections — 6 September 2026
+
+The initial QA changes were committed at `7a22b74`. The subsequent corrections and test evidence are recorded in the suite's QA-FOLLOWUP-2026-09-06.md. Read the current INTEROPERABILITY.md additions for retry fairness, strict persisted identity, deployment evidence and mutation authorization. Earlier implementation reports remain historical checkpoints.
+
+## QA follow-up — 6 September 2026
+
+The prior interoperability implementation was committed as `19a70fc5a10696d68140b12538181ed200c6632d` before QA corrections. The current follow-up implements the latest QA report; see INTEROPERABILITY.md and the suite's QA-FIX-IMPLEMENTATION-2026-09-06.md for the durable outcome protocol, package recovery, deployment boundaries and validation. Historical “uncommitted” and “no commit” notes below describe the earlier checkpoint. No application was installed or release published during this follow-up.
+
+## Interoperability implementation — 6 September 2026
+
+Uncommitted changes add `onboarding-attempt-v1`, local network/NDI recovery, original desktop-user ownership, DHCP reconciliation, bounded download readiness and complete-pair installation recovery. See [INTEROPERABILITY.md](INTEROPERABILITY.md); the owning suite's INTEROP-IMPLEMENTATION.md records cross-repository evidence. Both validation projects and self-contained package build pass with isolated state. Actual alternate-account UAC, network changes and reboot require controlled deployment acceptance. No installation, commit or release was performed; baseline notes below refer to committed releases.
+
 
 ## Aligned release baseline: 6 September 2026
 

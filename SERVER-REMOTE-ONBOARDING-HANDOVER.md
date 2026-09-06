@@ -1,5 +1,7 @@
 # Job Configurator handover: remote Windows PC onboarding
 
+September 2026 update: new requests require `onboarding-attempt-v1` and the same attempt/job revision through approval, fetch and registration. See [INTEROPERABILITY.md](INTEROPERABILITY.md). The earlier flows below remain historical context where they omit these added fields.
+
 ## Objective
 
 Update Kiloview Job Configurator so an installed `NDI Configurator PC Agent` can be

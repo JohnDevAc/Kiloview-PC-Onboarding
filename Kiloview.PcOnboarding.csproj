@@ -21,6 +21,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiloview.PcOnboarding.Validation" />
+    <InternalsVisibleTo Include="NDI.Suite.Interop.Validation" />
     <Compile Remove="Agent\**\*.cs" />
     <Compile Remove="tests\**\*.cs" />
     <None Remove="Agent\**\*" />

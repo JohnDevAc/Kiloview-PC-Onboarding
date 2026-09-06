@@ -7,6 +7,37 @@ namespace KiloviewPcOnboarding;
 
 internal static class NetworkConfigurationService
 {
+    internal sealed record RecoveryPlan(NetworkConfigurationPlan Plan, bool AutomaticDns);
+
+    internal static RecoveryPlan Capture(NetworkConfigurationPlan plan)
+    {
+        var adapter = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.Id.Equals(plan.Current.Id, StringComparison.OrdinalIgnoreCase));
+        var properties = adapter.GetIPProperties();
+        var addresses = properties.UnicastAddresses.Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork).ToArray();
+        if (plan.ChangesNetwork && addresses.Length != 1)
+            throw new InvalidOperationException("Remote address changes require exactly one IPv4 address on the selected adapter. Configure secondary addresses locally before retrying.");
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\" + adapter.Id);
+        var automaticDns = string.IsNullOrWhiteSpace(key?.GetValue("NameServer") as string);
+        var dhcp = properties.GetIPv4Properties().IsDhcpEnabled;
+        var gateway = properties.GatewayAddresses.FirstOrDefault(g => g.Address.AddressFamily == AddressFamily.InterNetwork)?.Address.ToString();
+        var dns = properties.DnsAddresses.Where(a => a.AddressFamily == AddressFamily.InterNetwork).Select(a => a.ToString()).ToArray();
+        return new(new(plan.Current, dhcp ? "dhcp" : "static", plan.Current.Address, plan.Current.PrefixLength, gateway, dns), automaticDns);
+    }
+
+    internal static async Task RestoreAsync(RecoveryPlan recovery, string serverAddress, CancellationToken ct)
+    {
+        await ApplyAsync(recovery.Plan, serverAddress, ct);
+        var adapter = NetworkInterface.GetAllNetworkInterfaces().Single(n => n.Id.Equals(recovery.Plan.Current.Id, StringComparison.OrdinalIgnoreCase));
+        if (recovery.AutomaticDns)
+            await RunNetshAsync(["interface", "ipv4", "set", "dnsservers", $"name={adapter.Name}", "source=dhcp"], ct);
+        else
+        {
+            var dns = recovery.Plan.DnsServers ?? [];
+            await RunNetshAsync(["interface", "ipv4", "set", "dnsservers", $"name={adapter.Name}", "source=static", $"address={dns.FirstOrDefault() ?? "none"}", "validate=no"], ct);
+            for (var index = 1; index < dns.Count; index++)
+                await RunNetshAsync(["interface", "ipv4", "add", "dnsservers", $"name={adapter.Name}", $"address={dns[index]}", $"index={index + 1}", "validate=no"], ct);
+        }
+    }
     internal static NetworkConfigurationPlan CreatePlan(
         NetworkChoice current,
         RemoteNetworkConfiguration? requested,
@@ -165,6 +196,7 @@ internal static class NetworkConfigurationService
                 {
                     var candidate = network.GetIPProperties().UnicastAddresses
                         .Where(item => item.Address.AddressFamily == AddressFamily.InterNetwork
+                            && item.DuplicateAddressDetectionState == DuplicateAddressDetectionState.Preferred
                             && !IPAddress.IsLoopback(item.Address)
                             && !item.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
                         .FirstOrDefault(item => expectedAddress is null

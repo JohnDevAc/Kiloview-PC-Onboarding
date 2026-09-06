@@ -21,6 +21,7 @@ internal static class AgentStore
         "KILOVIEW_AGENT_STATE_PATH") is { Length: > 0 } overridePath
             ? Path.GetFullPath(overridePath)
             : Path.Combine(DirectoryPath, "agent-state.json");
+    internal static string ConfigurationPath => StatePath;
 
     public static AgentConfiguration? Read()
     {
@@ -34,7 +35,10 @@ internal static class AgentStore
                         : null;
             if (path is null)
                 return null;
-            return JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(path), Json);
+            var state = JsonSerializer.Deserialize<AgentConfiguration>(File.ReadAllText(path), Json);
+            return state is not null && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
+                state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
+                && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName)) ? state : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -107,6 +111,20 @@ internal static class AgentStore
         {
             mutex.ReleaseMutex();
         }
+    }
+
+    internal static void ReconcileAddress(AgentConfiguration expected, AgentConfiguration actual)
+    {
+        using var mutex = new Mutex(false, "Local\\KiloviewPcAgentState");
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(5))) return;
+        try
+        {
+            var current = Read();
+            if (current?.EndpointId != expected.EndpointId || current.AdapterId != expected.AdapterId
+                || current.UpdatedUtc != expected.UpdatedUtc) return;
+            Write(current with { Address = actual.Address, PrefixLength = actual.PrefixLength, UpdatedUtc = DateTimeOffset.UtcNow });
+        }
+        finally { mutex.ReleaseMutex(); }
     }
 
     private static void Write(AgentConfiguration state)

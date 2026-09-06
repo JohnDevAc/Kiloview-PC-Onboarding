@@ -7,6 +7,55 @@ var installedAgent = Path.Combine(testRoot, "NDI Configurator PC Agent.exe");
 try
 {
     Directory.CreateDirectory(Path.GetDirectoryName(packagedAgent)!);
+    await QaRegression.RunAsync(testRoot);
+    Require(PackageInstallation.Compare("0.7.0-dev.2", "0.7.0") < 0
+        && PackageInstallation.Compare("0.7.0-dev.10", "0.7.0-dev.2") > 0
+        && PackageInstallation.Compare("0.7.0.0+build", "0.7.0") == 0, "Package version ordering is inconsistent.");
+    Require(PackageInstallation.Retain("0.8.0", "0.8.0", "0.7.0"), "Matching newer installation must be retained.");
+    foreach (var pair in new (string?, string?)[] { ("0.8.0", "0.7.0"), ("0.7.0", "0.8.0"), ("0.8.0", null), (null, "0.8.0") })
+    {
+        try { PackageInstallation.Retain(pair.Item1, pair.Item2, "0.7.0"); throw new Exception("Mixed newer installation was accepted."); }
+        catch (InvalidOperationException) { }
+    }
+    var destinations = new[] { Path.Combine(testRoot, "installed-a"), Path.Combine(testRoot, "installed-b") };
+    var sources = new[] { Path.Combine(testRoot, "source-a"), Path.Combine(testRoot, "source-b") };
+    for (var i = 0; i < 2; i++) { File.WriteAllText(destinations[i], "old"); File.WriteAllText(sources[i], "new"); }
+    var replacements = destinations.Zip(sources).ToDictionary(pair => pair.First, pair => pair.Second);
+    var moved = 0;
+    try { PackageInstallation.Replace(replacements, () => { }, (source, target) => { if (++moved == 2) throw new IOException("fixture lock"); File.Move(source, target, true); }); }
+    catch (IOException) { }
+    Require(destinations.All(path => File.ReadAllText(path) == "old"), "Failed second replacement must restore both files.");
+    PackageInstallation.Replace(replacements, () => { });
+    Require(destinations.All(path => File.ReadAllText(path) == "new"), "Complete pair did not replace together.");
+    var interrupted = Path.Combine(testRoot, ".pc-agent-install-recovery");
+    Directory.CreateDirectory(interrupted);
+    File.WriteAllText(Path.Combine(interrupted, "installed-a"), "before interrupted update");
+    File.WriteAllText(Path.Combine(interrupted, "manifest.json"), """{"installed-a":true}""");
+    PackageInstallation.Recover(testRoot);
+    Require(File.ReadAllText(destinations[0]) == "before interrupted update" && !Directory.Exists(interrupted), "Next Setup did not recover an interrupted replacement.");
+    Console.WriteLine("COMPLETE_PACKAGE_RETENTION_AND_RECOVERY=PASS");
+    var recoveryFile = Path.Combine(testRoot, "recovery-fixture.json");
+    File.WriteAllText(recoveryFile, "original");
+    var recoveryFiles = ConfigurationTransaction.CaptureFiles([recoveryFile]);
+    try
+    {
+        await ConfigurationTransaction.RunAsync<int>(() =>
+        {
+            File.WriteAllText(recoveryFile, "partial change");
+            throw new IOException("Simulated registration failure");
+        }, token =>
+        {
+            Require(!token.IsCancellationRequested, "Recovery must get its own live deadline.");
+            ConfigurationTransaction.RestoreFiles(recoveryFiles);
+            return Task.CompletedTask;
+        });
+        throw new Exception("Failure was hidden.");
+    }
+    catch (InvalidOperationException ex) { Require(ex.Message.Contains("restored"), "Recovery outcome was missing."); }
+    Require(File.ReadAllText(recoveryFile) == "original", "Failed onboarding did not restore fixture state.");
+    Require(NetworkService.ScanAddresses(new("fixture", "Fixture", "Fixture", "192.0.2.10", 23)).Count() == 510, "Agent discovery truncated /23.");
+    Console.WriteLine("REMOTE_TRANSACTION_RECOVERY=PASS");
+    Console.WriteLine("FULL_SELECTED_SUBNET_DISCOVERY=PASS");
     File.WriteAllText(packagedAgent, "packaged");
     File.WriteAllText(installedAgent, "installed");
 
@@ -33,9 +82,11 @@ try
         "--remote-onboarding",
         "--configurator", "http://192.168.50.10:8091/",
         "--requesting-address", "192.168.50.10",
-        "--endpoint-id", endpointId
+        "--endpoint-id", endpointId,
+        "--attempt-id", "cb5311ad-6633-4f2f-8184-c5d081df27ed"
     ]);
     Require(options is not null && options.EndpointId == endpointId, "Remote onboarding arguments were not parsed.");
+    Require(options!.AttemptId == "cb5311ad-6633-4f2f-8184-c5d081df27ed", "Remote command line lost the approval attempt.");
 
     var configuration = new RemoteOnboardingConfiguration(
         1,

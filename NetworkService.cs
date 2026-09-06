@@ -27,7 +27,9 @@ internal static class NetworkService
     public static IEnumerable<IPAddress> ScanAddresses(NetworkChoice choice)
     {
         var address = IPAddress.Parse(choice.Address);
-        var prefix = Math.Clamp(choice.PrefixLength, 24, 30);
+        var prefix = choice.PrefixLength;
+        if (prefix is < 20 or > 30)
+            throw new InvalidOperationException("Automatic discovery supports the complete selected subnet from /20 to /30. Larger networks must be segmented for bounded discovery.");
         var mask = uint.MaxValue << (32 - prefix);
         var network = ToUInt(address) & mask;
         var broadcast = network | ~mask;

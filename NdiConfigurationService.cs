@@ -19,7 +19,7 @@ internal static class NdiConfigurationService
         "KILOVIEW_NDI_DISCOVERY_UI_CONFIG_PATH") is { Length: > 0 } overridePath
             ? Path.GetFullPath(overridePath)
             : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                InteractiveProfile.LocalApplicationData,
                 "NDI",
                 "Application.NDI.DiscoveryService.UI",
                 "discovery_service_settings.json");
@@ -34,6 +34,8 @@ internal static class NdiConfigurationService
         await ApplyConfigurationFilesAsync(network, server, ct,
             AgentInstallationService.PreviousJob(server.Address));
     }
+
+    internal static IEnumerable<string> ConfigurationPaths => [ConfigPath, DiscoveryUiConfigPath];
 
     internal static void EnsureApplicationsClosed()
     {
@@ -210,12 +212,12 @@ internal static class NdiConfigurationService
         }
     }
 
-    private static async Task<FileStream> AcquireConfigurationLockAsync(CancellationToken ct)
+    internal static async Task<FileStream> AcquireConfigurationLockAsync(CancellationToken ct)
     {
         var directory = Path.GetDirectoryName(ConfigPath)
             ?? throw new InvalidOperationException("The NDI configuration directory could not be resolved.");
         Directory.CreateDirectory(directory);
-        var lockPath = Path.Combine(directory, ".kiloview-ndi-configuration.lock");
+        var lockPath = Path.Combine(directory, ".ndi-configurator-configuration.lock");
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while (true)
         {
