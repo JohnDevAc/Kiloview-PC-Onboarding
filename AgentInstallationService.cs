@@ -23,9 +23,6 @@ internal static class AgentInstallationService
     private const string LegacyPingRuleName = "Kiloview PC Onboarding - ICMPv4 Echo";
     private const string RunValueName = "NDI Configurator PC Agent";
     private const string LegacyRunValueName = "Kiloview PC Agent";
-    private const int InboundDirection = 1;
-    private const int AllowAction = 1;
-    private const int AllProfiles = int.MaxValue;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -61,9 +58,10 @@ internal static class AgentInstallationService
 
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
     {
+        IDisposable? installationLock = null;
         try
         {
-            using var installationLock = PackageInstallation.AcquireInstallationLock();
+            installationLock = PackageInstallation.AcquireInstallationLock();
             if (Directory.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery")))
             {
                 StopInstalledAgent();
@@ -117,9 +115,33 @@ internal static class AgentInstallationService
         }
         catch (Exception ex)
         {
-            try { StartAgentIfNeeded(); } catch { /* The installation error remains primary. */ }
+            if (ex is PackageInstallation.RunningSetupRecoveryException)
+            {
+                DeferredPackageRecovery.Queue(InstallDirectory);
+                return new(false, false, "Package recovery will finish after this Setup closes. Close this window, then retry onboarding or setup.");
+            }
+            // A timed-out contender must not restart a process that the owner is replacing.
+            if (installationLock is not null && !File.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery", "manifest.json"))
+                && PackageInstallation.VersionOf(InstalledAgentPath) is { } agentVersion
+                && PackageInstallation.VersionOf(InstalledUtilityPath) is { } setupVersion
+                && PackageInstallation.Compare(agentVersion, setupVersion) == 0)
+                try { StartAgentIfNeeded(); } catch { /* The installation error remains primary. */ }
             return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}");
         }
+        finally { installationLock?.Dispose(); }
+    }
+
+    internal static int RecoverInstalledPackage()
+    {
+        using var installationLock = PackageInstallation.AcquireInstallationLock();
+        StopInstalledAgent();
+        PackageInstallation.Recover(InstallDirectory);
+        var agent = PackageInstallation.VersionOf(InstalledAgentPath);
+        var setup = PackageInstallation.VersionOf(InstalledUtilityPath);
+        if (agent is null || setup is null || PackageInstallation.Compare(agent, setup) != 0)
+            throw new IOException("Package recovery requires a matching complete Agent and Setup pair.");
+        StartAgentIfNeeded();
+        return 0;
     }
 
     public static NetworkChoice? PreferredNetwork()
@@ -276,21 +298,18 @@ internal static class AgentInstallationService
 
     private static void ConfigureLanRules(NetworkChoice network)
     {
-        var remoteSubnet = NetworkCidr(network);
         AddOrReplaceFirewallRule(
             DiscoveryRuleName,
             "Allows NDI Job Configurator discovery requests from the selected production subnet.",
             17,
             DiscoveryPort,
-            network.Address,
-            remoteSubnet, network.Name);
+            network.Name);
         AddOrReplaceFirewallRule(
             ApiRuleName,
             "Allows NDI Job Configurator to read NDI Configurator PC Agent monitoring status on the selected production subnet.",
             6,
             ApiPort,
-            network.Address,
-            remoteSubnet, network.Name);
+            network.Name);
     }
 
     private static void AddOrReplaceFirewallRule(
@@ -298,8 +317,6 @@ internal static class AgentInstallationService
         string description,
         int protocol,
         int localPort,
-        string localAddress,
-        string remoteAddress,
         string interfaceName)
     {
         object? policy = null;
@@ -317,19 +334,8 @@ internal static class AgentInstallationService
             dynamic configured = rule!;
             configured.Name = name;
             configured.Description = description;
-            configured.Protocol = protocol;
-            configured.LocalPorts = localPort.ToString();
-            configured.Direction = InboundDirection;
-            configured.Action = AllowAction;
-            configured.Profiles = AllProfiles;
-            // Interface and application scope survive DHCP leases; the API also checks
-            // the selected adapter's current subnet on every request.
-            configured.LocalAddresses = "*";
-            configured.RemoteAddresses = "LocalSubnet";
-            configured.Interfaces = new[] { interfaceName };
-            configured.ApplicationName = InstalledAgentPath;
-            configured.EdgeTraversal = false;
-            configured.Enabled = true;
+            var expected = new AgentFirewallPolicy(protocol, localPort, interfaceName, InstalledAgentPath);
+            expected.Apply(rule!);
 
             object? existing = null;
             var existingRuleFound = false;
@@ -355,10 +361,7 @@ internal static class AgentInstallationService
             if (!FirewallRuleMatches(
                 rules,
                 name,
-                protocol,
-                localPort,
-                localAddress,
-                remoteAddress))
+                expected))
                 throw new InvalidOperationException($"Windows did not retain the {name} firewall rule settings.");
         }
         finally
@@ -500,27 +503,13 @@ internal static class AgentInstallationService
     private static bool FirewallRuleMatches(
         object rules,
         string name,
-        int protocol,
-        int localPort,
-        string localAddress,
-        string remoteAddress)
+        AgentFirewallPolicy expected)
     {
         object? existing = null;
         try
         {
             existing = ((dynamic)rules).Item(name);
-            dynamic configured = existing;
-            return configured.Enabled
-                && (int)configured.Protocol == protocol
-                && (int)configured.Direction == InboundDirection
-                && (int)configured.Action == AllowAction
-                && ((int)configured.Profiles & 7) == 7
-                && string.Equals(
-                    (string)configured.LocalPorts,
-                    localPort.ToString(),
-                    StringComparison.Ordinal)
-                && AddressListContains((string)configured.LocalAddresses, localAddress)
-                && AddressListContains((string)configured.RemoteAddresses, remoteAddress);
+            return expected.Matches(existing);
         }
         catch
         {

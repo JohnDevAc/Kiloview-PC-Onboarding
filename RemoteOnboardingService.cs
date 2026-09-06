@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using NdiSuite.Onboarding;
 
 namespace KiloviewPcOnboarding;
 
@@ -24,9 +25,14 @@ internal static class RemoteOnboardingService
                 "NDI Configurator PC Agent does not have a selected production adapter. Reinstall the agent locally first.");
         var configuration = await FetchConfigurationAsync(current, options, ct);
         ValidateConfiguration(configuration, options.EndpointId);
-        if (!Guid.TryParse(options.AttemptId, out _) || configuration.AttemptId != options.AttemptId
+        if (!configuration.RequiresFinalConfirmation || !Guid.TryParse(options.AttemptId, out _) || configuration.AttemptId != options.AttemptId
             || string.IsNullOrWhiteSpace(configuration.JobId) || string.IsNullOrWhiteSpace(configuration.JobRevision))
             throw new InvalidOperationException("Update Job Configurator and request a new approved onboarding attempt before configuring this PC.");
+        // UAC and local approval happen before this process fetches settings.
+        // Leave a minute of the server's five-minute window for outcome delivery.
+        using var execution = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        execution.CancelAfter(TimeSpan.FromMinutes(4));
+        ct = execution.Token;
         var plan = NetworkConfigurationService.CreatePlan(
             current,
             configuration.Network,
@@ -37,7 +43,10 @@ internal static class RemoteOnboardingService
         await using var mutationLock = await NdiConfigurationService.AcquireConfigurationLockAsync(ct);
         var recovery = NetworkConfigurationService.Capture(plan);
         var files = ConfigurationTransaction.CaptureFiles(NdiConfigurationService.ConfigurationPaths.Append(AgentInstallationService.ConfigurationPath));
-        return await ConfigurationTransaction.RunAsync(async () =>
+        var outcome = new PendingOutcome(options.EndpointId, configuration.AttemptId!, configuration.JobId!, configuration.JobRevision!,
+            options.RequestingAddress, current.Id, "applying", DateTimeOffset.UtcNow);
+        OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
+        var result = await ConfigurationTransaction.RunAsync(async () =>
         {
         var network = await NetworkConfigurationService.ApplyAsync(
             plan,
@@ -88,8 +97,33 @@ internal static class RemoteOnboardingService
                 catch (Exception ex) { failures.Add(ex); }
             try { ConfigurationTransaction.RestoreFiles(files); }
             catch (Exception ex) { failures.Add(ex); }
+            outcome = outcome with { Outcome = failures.Count == 0 ? "aborted" : "recovery-required", UpdatedUtc = DateTimeOffset.UtcNow };
+            OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
+            await TryReportOutcomeAsync(outcome, recoveryToken);
             if (failures.Count > 0) throw new AggregateException(failures);
         });
+        // Once the local transaction succeeded, a lost final acknowledgement must
+        // never undo it. Agent retries this durable outcome after Setup exits/restarts.
+        outcome = outcome with { Outcome = "completed", UpdatedUtc = DateTimeOffset.UtcNow };
+        OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
+        var confirmed = await TryReportOutcomeAsync(outcome, ct);
+        return result with { ConfirmationPending = !confirmed };
+    }
+
+    private static async Task<bool> TryReportOutcomeAsync(PendingOutcome outcome, CancellationToken ct)
+    {
+        try
+        {
+            var network = AgentInstallationService.PreferredNetwork();
+            if (network is null || network.Id != outcome.AdapterId) return false;
+            using var client = OnboardingOutcomes.CreateClient(network.Address);
+            var status = await OnboardingOutcomes.SendAsync(client, outcome, ct);
+            OnboardingOutcomes.Acknowledge(AgentInstallationService.ConfigurationPath, outcome);
+            if (outcome.Outcome == "completed" && status != "completed")
+                throw new InvalidOperationException("The job or onboarding attempt changed before confirmation. Reapply approved onboarding for the current job.");
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException) { return false; }
     }
 
     internal static void ValidateConfiguration(

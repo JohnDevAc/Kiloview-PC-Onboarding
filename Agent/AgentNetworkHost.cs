@@ -114,6 +114,7 @@ internal sealed class AgentNetworkHost : IDisposable
                         "open-onboarding-v1",
                         "remote-onboarding-v2",
                         "onboarding-attempt-v1",
+                        "onboarding-outcome-v1",
                         "network-config-v1",
                         "multicast-config-v1"
                     }

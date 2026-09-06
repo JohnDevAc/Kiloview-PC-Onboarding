@@ -1,18 +1,19 @@
 using System.Diagnostics;
 using System.Numerics;
 using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace KiloviewPcOnboarding;
 
 internal static class PackageInstallation
 {
-    internal static IDisposable AcquireInstallationLock()
+    internal static IDisposable AcquireInstallationLock(TimeSpan? timeout = null, string? name = null)
     {
-        var mutex = new Mutex(false, @"Global\NDIConfiguratorPcAgentInstall");
+        var mutex = new Mutex(false, name ?? @"Global\NDIConfiguratorPcAgentInstall");
         try
         {
             bool acquired;
-            try { acquired = mutex.WaitOne(TimeSpan.FromSeconds(20)); }
+            try { acquired = mutex.WaitOne(timeout ?? TimeSpan.FromSeconds(20)); }
             catch (AbandonedMutexException) { acquired = true; }
             if (!acquired) throw new IOException("Another PC Agent installation is running. Wait for it to finish and retry.");
             return new InstallationLock(mutex);
@@ -87,14 +88,16 @@ internal static class PackageInstallation
         try
         {
             foreach (var (name, existed) in originals)
-                if (existed) File.Copy(Path.Combine(directory, name), Path.Combine(recovery, name), false);
+                if (existed) CopyDurably(Path.Combine(directory, name), Path.Combine(recovery, name));
             // Publish the journal only after every original is safely copied.
-            File.WriteAllText(Path.Combine(recovery, "manifest.json"), JsonSerializer.Serialize(originals));
+            var entries = originals.ToDictionary(item => item.Key, item => new BackupEntry(item.Value,
+                item.Value ? Hash(Path.Combine(recovery, item.Key)) : null));
+            WriteJournal(recovery, entries);
             foreach (var (destination, source) in sources)
             {
                 var temporary = destination + ".staged-" + Guid.NewGuid().ToString("N");
                 staged[destination] = temporary;
-                File.Copy(source, temporary, false);
+                CopyDurably(source, temporary);
             }
             beforeReplace();
             try { foreach (var (destination, temporary) in staged) move(temporary, destination); }
@@ -114,7 +117,15 @@ internal static class PackageInstallation
         }
     }
 
-    internal static void Recover(string directory)
+    private static void CopyDurably(string source, string destination)
+    {
+        using var input = File.OpenRead(source);
+        using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        input.CopyTo(output);
+        output.Flush(true);
+    }
+
+    internal static void Recover(string directory, string? runningSetupPath = null)
     {
         directory = Path.GetFullPath(directory);
         var recovery = Path.Combine(directory, ".pc-agent-install-recovery");
@@ -125,18 +136,25 @@ internal static class PackageInstallation
             if (Directory.Exists(recovery)) Directory.Delete(recovery, true);
             return;
         }
-        var originals = JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(journal))
-            ?? throw new IOException("The PC Agent recovery journal is invalid.");
+        var originals = ReadJournal(journal);
         foreach (var name in originals.Keys)
             if (string.IsNullOrWhiteSpace(name) || name != Path.GetFileName(name) || name.IndexOfAny(['/', '\\', ':']) >= 0)
                 throw new IOException("The PC Agent recovery journal contains an invalid filename.");
-        foreach (var (name, existed) in originals)
+        foreach (var (name, entry) in originals)
         {
             var destination = Path.Combine(directory, name);
-            if (existed)
+            if (entry.Existed)
             {
+                var backup = Path.Combine(recovery, name);
+                if (entry.Sha256 is not null && !string.Equals(Hash(backup), entry.Sha256, StringComparison.Ordinal))
+                    throw new IOException("The PC Agent recovery backup is corrupt: " + name);
+                // The failed move may never have changed this file. In particular,
+                // do not overwrite an unchanged Setup executable that is still open.
+                if (FilesEqual(backup, destination)) continue;
+                if (string.Equals(Path.GetFullPath(destination), runningSetupPath ?? Environment.ProcessPath, StringComparison.OrdinalIgnoreCase))
+                    throw new RunningSetupRecoveryException();
                 var temporary = destination + ".restore-" + Guid.NewGuid().ToString("N");
-                File.Copy(Path.Combine(recovery, name), temporary, false);
+                CopyDurably(backup, temporary);
                 try { File.Move(temporary, destination, true); }
                 finally { if (File.Exists(temporary)) File.Delete(temporary); }
             }
@@ -144,5 +162,37 @@ internal static class PackageInstallation
         }
         File.Delete(journal);
         Directory.Delete(recovery, true);
+    }
+
+    internal sealed class RunningSetupRecoveryException() : IOException(
+        "The running Setup executable needs recovery from an external helper.");
+    private sealed record BackupEntry(bool Existed, string? Sha256);
+    private static Dictionary<string, BackupEntry> ReadJournal(string path)
+    {
+        using var json = JsonDocument.Parse(File.ReadAllText(path));
+        return json.RootElement.EnumerateObject().ToDictionary(item => item.Name, item =>
+            item.Value.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? new BackupEntry(item.Value.GetBoolean(), null) // Previous journal format.
+                : JsonSerializer.Deserialize<BackupEntry>(item.Value.GetRawText())
+                    ?? throw new IOException("The PC Agent recovery journal is invalid."));
+    }
+
+    private static void WriteJournal(string directory, Dictionary<string, BackupEntry> entries)
+    {
+        var temporary = Path.Combine(directory, "manifest.tmp");
+        using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(output, entries);
+            output.Flush(true);
+        }
+        File.Move(temporary, Path.Combine(directory, "manifest.json"), true);
+    }
+
+    internal static bool FilesEqual(string first, string second) => File.Exists(first) && File.Exists(second)
+        && new FileInfo(first).Length == new FileInfo(second).Length && Hash(first) == Hash(second);
+    private static string Hash(string path)
+    {
+        using var input = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(input));
     }
 }

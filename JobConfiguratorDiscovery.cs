@@ -59,11 +59,12 @@ internal static class JobConfiguratorDiscovery
         NetworkChoice network,
         JobConfiguratorInstance server,
         RegistrationRequest request,
-        CancellationToken ct)
+        CancellationToken ct,
+        HttpClient? transport = null)
     {
         for (var attempt = 0; ; attempt++)
         {
-            try { await RegisterOnceAsync(network, server, request, ct); return; }
+            try { await RegisterOnceAsync(network, server, request, ct, transport); return; }
             catch (Exception ex) when (attempt < 2 && !ct.IsCancellationRequested
                 && ex is HttpRequestException or TaskCanceledException)
             { await Task.Delay(TimeSpan.FromSeconds(1), ct); }
@@ -71,9 +72,10 @@ internal static class JobConfiguratorDiscovery
     }
 
     private static async Task RegisterOnceAsync(
-        NetworkChoice network, JobConfiguratorInstance server, RegistrationRequest request, CancellationToken ct)
+        NetworkChoice network, JobConfiguratorInstance server, RegistrationRequest request, CancellationToken ct, HttpClient? transport)
     {
-        using var client = NetworkService.CreateBoundClient(network, TimeSpan.FromSeconds(10));
+        using var owned = transport is null ? NetworkService.CreateBoundClient(network, TimeSpan.FromSeconds(10)) : null;
+        var client = transport ?? owned!;
         using var response = await client.PostAsJsonAsync(
             new Uri(server.BaseUri, "/api/pc-onboarding/register"),
             request,

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using NdiSuite.Onboarding;
 
 namespace KiloviewPcAgent;
 
@@ -19,6 +20,8 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private ToolStripMenuItem? _updateMenuItem;
     private bool _remoteLaunchPending;
     private bool _updatePending;
+    private bool _outcomeReporting;
+    private string? _outcomeWarning;
 
     public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
     {
@@ -46,6 +49,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         _activationTimer.Start();
         BuildMenu();
         StartNetworkHost();
+        _ = ReconcileOutcomeAsync(_configuration);
     }
 
     protected override void ExitThreadCore()
@@ -84,6 +88,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
             updated = AgentStore.Read() ?? actual;
             _tray.ShowBalloonTip(5000, "Production address changed", "Monitoring has followed the selected adapter. Reapply job onboarding if NDI settings report drift.", ToolTipIcon.Info);
         }
+        _ = ReconcileOutcomeAsync(updated);
         if (updated.UpdatedUtc == _configuration.UpdatedUtc)
         {
             if (_networkHost is null)
@@ -129,6 +134,45 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 ToolTipIcon.Warning);
         }
         BuildMenu();
+    }
+
+    private async Task ReconcileOutcomeAsync(AgentConfiguration configuration)
+    {
+        if (_outcomeReporting || _lifetime.IsCancellationRequested) return;
+        _outcomeReporting = true;
+        try
+        {
+            using var operation = KiloviewPcOnboarding.SetupOperationLease.TryAcquireForReconciliation();
+            if (operation is null) return;
+            var outcome = OnboardingOutcomes.ReadAll(AgentStore.ConfigurationPath)
+                .FirstOrDefault(item => item.EndpointId == configuration.EndpointId && item.AdapterId == configuration.AdapterId);
+            var actual = AgentAddressResolver.Resolve(configuration);
+            if (outcome is null || actual is null) return;
+            if (outcome.Outcome == "applying")
+            {
+                outcome = outcome with { Outcome = "recovery-required", UpdatedUtc = DateTimeOffset.UtcNow };
+                OnboardingOutcomes.Write(AgentStore.ConfigurationPath, outcome);
+            }
+            using var client = OnboardingOutcomes.CreateClient(actual.Address);
+            var status = await OnboardingOutcomes.SendAsync(client, outcome, _lifetime.Token);
+            OnboardingOutcomes.Acknowledge(AgentStore.ConfigurationPath, outcome);
+            if (_lifetime.IsCancellationRequested || _dispatcher.IsDisposed) return;
+            _tray.ShowBalloonTip(7000, "PC onboarding outcome",
+                status == "completed" ? "Job Configurator confirmed this PC's completed onboarding."
+                : status == "aborted" ? "Job Configurator confirmed that onboarding was rolled back."
+                : "The previous onboarding needs fresh local approval or repair. Request onboarding for the current job.",
+                status is "completed" or "aborted" ? ToolTipIcon.Info : ToolTipIcon.Warning);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or OperationCanceledException or System.Text.Json.JsonException)
+        {
+            if (!_lifetime.IsCancellationRequested && _outcomeWarning != ex.Message)
+            {
+                _outcomeWarning = ex.Message;
+                _tray.ShowBalloonTip(7000, "Onboarding confirmation pending",
+                    "PC Agent will retry its saved outcome when Job Configurator is reachable. " + ex.Message, ToolTipIcon.Warning);
+            }
+        }
+        finally { _outcomeReporting = false; }
     }
 
     private void BuildMenu()
@@ -232,22 +276,24 @@ internal sealed class AgentApplicationContext : ApplicationContext
     {
         if (_dispatcher.IsDisposed)
             return;
-        _dispatcher.BeginInvoke(() =>
+        _dispatcher.BeginInvoke((Action)(async () =>
         {
             try
             {
-                _ = OpenRemoteOnboardingUtility(
+                using var process = OpenRemoteOnboardingUtility(
                     request.ConfiguratorUrl,
                     request.RemoteAddress,
                     _configuration.EndpointId, request.AttemptId);
+                if (process is not null) await process.WaitForExitAsync(_lifetime.Token);
             }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
             finally
             {
                 _remoteLaunchPending = false;
-                if (_updateMenuItem is not null)
+                if (!_dispatcher.IsDisposed && _updateMenuItem is not null)
                     _updateMenuItem.Enabled = true;
             }
-        });
+        }));
     }
 
     private async Task CheckForUpdatesAsync()
@@ -410,7 +456,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
         }
     }
 
-    private static bool OpenRemoteOnboardingUtility(
+    private static Process? OpenRemoteOnboardingUtility(
         string? configuratorUrl,
         string requestingAddress,
         string endpointId,
@@ -440,13 +486,12 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 start.ArgumentList.Add("--attempt-id");
                 start.ArgumentList.Add(attemptId);
             }
-            Process.Start(start);
-            return true;
+            return Process.Start(start);
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return false;
+            return null;
         }
     }
 

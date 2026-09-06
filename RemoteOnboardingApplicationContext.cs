@@ -30,12 +30,15 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
                     + "Install the latest NDI Tools from https://ndi.video/tools/."
                 : $"\n\n{result.NdiStatusMessage}";
             MessageBox.Show(
-                $"This PC was onboarded successfully to {result.JobName}.\n\n{network}"
+                (result.ConfirmationPending
+                    ? $"Settings for {result.JobName} were applied. Server confirmation is pending; PC Agent will retry when the server is reachable."
+                    : $"This PC was onboarded successfully to {result.JobName}.")
+                + $"\n\n{network}"
                 + "\nNDI interface, group, and discovery settings were applied."
                 + ndi,
                 "NDI Configurator PC Agent Setup complete",
                 MessageBoxButtons.OK,
-                result.NdiUpdateRequired ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
+                result.NdiUpdateRequired || result.ConfirmationPending ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
         }
         catch (Exception ex)
         {

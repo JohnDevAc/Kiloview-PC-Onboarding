@@ -67,7 +67,8 @@ internal sealed record RemoteOnboardingConfiguration(
     string JobName,
     string NdiDiscoveryServerIp,
     RemoteNetworkConfiguration? Network,
-    string? AttemptId = null, string? JobId = null, string? JobRevision = null);
+    string? AttemptId = null, string? JobId = null, string? JobRevision = null,
+    bool RequiresFinalConfirmation = false);
 
 internal sealed record RemoteNetworkConfiguration(
     string AdapterId,
@@ -94,4 +95,5 @@ internal sealed record RemoteOnboardingResult(
     int PrefixLength,
     bool NetworkChanged,
     bool NdiUpdateRequired,
-    string NdiStatusMessage);
+    string NdiStatusMessage,
+    bool ConfirmationPending = false);

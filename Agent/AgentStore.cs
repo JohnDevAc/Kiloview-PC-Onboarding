@@ -21,6 +21,7 @@ internal static class AgentStore
         "KILOVIEW_AGENT_STATE_PATH") is { Length: > 0 } overridePath
             ? Path.GetFullPath(overridePath)
             : Path.Combine(DirectoryPath, "agent-state.json");
+    internal static string ConfigurationPath => StatePath;
 
     public static AgentConfiguration? Read()
     {
