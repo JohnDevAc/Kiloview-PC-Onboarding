@@ -1,4 +1,33 @@
-# NDI Configurator PC Agent 0.6.1 developer handoff
+# NDI Configurator PC Agent developer handoff
+
+
+## Aligned release baseline: 6 September 2026
+
+Main `0.7.0` and Development `0.7.0-dev.2` share the server-local onboarding and
+blue companion icon implementation. The branches differ only in version/channel
+metadata. This project is managed together with the sibling server
+workspace, while keeping separate Git repositories and deployments. Read
+`AGENTS.md` and `SERVER-LOCAL-ONBOARDING-HANDOVER.md`.
+
+The server can install this complete package as a default-selected optional
+component and invoke installed Setup via `--server-command` with schema-1
+stdin/stdout JSON. Local server onboarding inherits existing elevation and
+installer consent, so it displays no second prompt. Remote Yes/No and UAC stay
+unchanged. The companion owns all Windows NDI writes, replaces prior managed job
+groups, and exposes live NDI configuration status for server drift monitoring.
+Setup and the agent now use the royal-blue `assets/PcAgent.ico`.
+
+Both validation projects passed (11 onboarding and 20 agent checks). The suite's
+package/test and deployment evidence is recorded in the server's
+`SUITE-INTEGRATION-VALIDATION.md`. The server release must bundle this version
+from a clean committed checkout on the matching channel: server Main `0.8.8`
+bundles companion Main `0.7.0`, while server Development `0.8.8-dev.1` bundles
+companion Development `0.7.0-dev.2`. Installed agents follow the independent Main
+release feed. Final release hashes and source revisions are recorded in the
+server's `CHANNEL-ALIGNMENT-2026-09-06.md`.
+
+The workflow below still describes remote PCs; server-local installation and
+onboarding use the new process contract.
 
 ## Current workflow
 
@@ -91,19 +120,12 @@ dotnet run --project .\tests\Kiloview.PcAgent.Validation\Kiloview.PcAgent.Valida
 The agent validation host uses ephemeral ports so it can run while an installed
 tray agent owns production ports 8093/8094.
 
-Current local packages:
-
-- `artifacts/NDI-Configurator-PC-Agent-win-x64.zip` — 132.783 MB,
-  SHA-256 `CCD6650E843F238A740D542A6AECAAB89E492811C24ABD5ED74E710F82EA89BC`
-- `artifacts/NDI-Configurator-PC-Agent-win-x64-framework-dependent.zip` —
-  0.919 MB, SHA-256
-  `2F9B03614D3C8D179074136F0D0895D45C09641AAD8537078FB32C915975D8E3`
-
-Each archive has an adjacent `.sha256` manifest.
+Package outputs are under `artifacts`; each ZIP has an adjacent `.sha256` manifest. Historical package hashes are not reused for this version.
 
 ## Safety invariants
 
-- The agent never elevates itself and never applies configuration.
+- The agent runs unelevated. Privileged onboarding belongs to Setup; membership-authorized multicast is applied by the agent.
+- Installed server-local onboarding uses existing elevation and installer consent.
 - Every remote onboarding attempt requires a visible local Yes/No decision and
   Windows UAC.
 - Submitted server addresses are replaced by the actual TCP source.

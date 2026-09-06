@@ -11,7 +11,7 @@
     <Product>NDI Configurator PC Agent</Product>
     <AssemblyTitle>NDI Configurator PC Agent</AssemblyTitle>
     <Description>Tray agent for discovery, monitoring, remote onboarding, and managed NDI multicast.</Description>
-    <ApplicationIcon>..\assets\KiloviewSetup.ico</ApplicationIcon>
+    <ApplicationIcon>..\assets\PcAgent.ico</ApplicationIcon>
     <ApplicationManifest>agent.manifest</ApplicationManifest>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishSingleFile>true</PublishSingleFile>
@@ -21,6 +21,6 @@
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="..\assets\KiloviewSetup.ico" Link="assets\KiloviewSetup.ico" LogicalName="KiloviewPcAgent.BrandIcon.ico" />
+    <EmbeddedResource Include="..\assets\PcAgent.ico" Link="assets\PcAgent.ico" LogicalName="KiloviewPcAgent.BrandIcon.ico" />
   </ItemGroup>
 </Project>

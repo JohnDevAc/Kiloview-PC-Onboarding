@@ -5,8 +5,10 @@ namespace KiloviewPcOnboarding;
 internal static class Program
 {
     [STAThread]
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
+        if (args.Contains("--server-command", StringComparer.Ordinal))
+            return ServerOnboardingCommand.RunAsync().GetAwaiter().GetResult();
         ApplicationConfiguration.Initialize();
         using var icon = LoadIcon();
         RemoteOnboardingOptions? remote;
@@ -21,7 +23,7 @@ internal static class Program
                 "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
-            return;
+            return 1;
         }
         if (remote is not null)
         {
@@ -32,10 +34,10 @@ internal static class Program
                     "NDI Configurator PC Agent Setup",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
-                return;
+                return 1;
             }
             Application.Run(new RemoteOnboardingApplicationContext(remote));
-            return;
+            return 0;
         }
         if (AgentInstallationService.IsConfigured())
         {
@@ -53,15 +55,16 @@ internal static class Program
                 "NDI Configurator PC Agent Setup",
                 MessageBoxButtons.OK,
                 update.Installed ? MessageBoxIcon.Information : MessageBoxIcon.Error);
-            return;
+            return update.Installed ? 0 : 1;
         }
         if (!ConsentStore.IsAccepted("1.0"))
         {
             using var agreement = new EulaForm(icon);
-            if (agreement.ShowDialog() != DialogResult.OK) return;
+            if (agreement.ShowDialog() != DialogResult.OK) return 2;
             ConsentStore.Record("1.0");
         }
         Application.Run(new MainForm(icon));
+        return 0;
     }
 
     internal static RemoteOnboardingOptions? RemoteOptions(string[] args)
