@@ -4,6 +4,7 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
 {
     private readonly RemoteOnboardingOptions _options;
     private bool _started;
+    internal int ExitCode { get; private set; } = 1;
 
     public RemoteOnboardingApplicationContext(RemoteOnboardingOptions options)
     {
@@ -22,6 +23,7 @@ internal sealed class RemoteOnboardingApplicationContext : ApplicationContext
             var result = await RemoteOnboardingService.ExecuteAsync(
                 _options,
                 CancellationToken.None);
+            ExitCode = 0;
             var network = result.NetworkChanged
                 ? $"Network settings applied: {result.Address}/{result.PrefixLength}."
                 : $"Network retained: {result.Address}/{result.PrefixLength}.";

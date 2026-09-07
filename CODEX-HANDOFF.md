@@ -1,5 +1,9 @@
 # NDI Configurator PC Agent developer handoff
 
+## Internal onboarding failure diagnostics — 7 September 2026
+
+Prepared for Main 0.7.2 and Development 0.7.2-dev.1. Setup/Agent capture bounded stage timelines and exception details, queue remote failures across restart/reconnection, and require a matching server acknowledgement before deleting queued reports. The queue retains at most 64 reports for seven days and backs off failed delivery without blocking outcome reconciliation. Local server failures return optional `failureReport` in the existing schema-1 response. Remote Setup now returns a failing exit code for failure, and Agent captures UAC/launch and abnormal exits without adding a second Setup result dialog. Diagnostics are for internal testing; no log viewer or report links are added to the UI. See the suite's `ONBOARDING-DIAGNOSTICS.md` for storage, retention, retrieval and validation. Both companion validation projects and the server integration suites passed using isolated paths before release preparation. Publish this repository before the matching Job Configurator 0.8.10 packages.
+
 ## Further QA corrections — 6 September 2026
 
 The initial QA changes were committed at `7a22b74`. The subsequent corrections and test evidence are recorded in the suite's QA-FOLLOWUP-2026-09-06.md. Read the current INTEROPERABILITY.md additions for retry fairness, strict persisted identity, deployment evidence and mutation authorization. Earlier implementation reports remain historical checkpoints.

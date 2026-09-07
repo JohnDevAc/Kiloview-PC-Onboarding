@@ -7,6 +7,7 @@ var installedAgent = Path.Combine(testRoot, "NDI Configurator PC Agent.exe");
 try
 {
     Directory.CreateDirectory(Path.GetDirectoryName(packagedAgent)!);
+    await DiagnosticsValidation.RunAsync(testRoot);
     await QaRegression.RunAsync(testRoot);
     Require(PackageInstallation.Compare("0.7.0-dev.2", "0.7.0") < 0
         && PackageInstallation.Compare("0.7.0-dev.10", "0.7.0-dev.2") > 0

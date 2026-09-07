@@ -161,6 +161,7 @@ internal static class AgentInstallationService
     public static bool IsConfigured() => ReadState() is not null
         && (File.Exists(InstalledAgentPath) || File.Exists(LegacyInstalledAgentPath));
     internal static string ConfigurationPath => StatePath;
+    internal static string? ConfiguredAdapterId => ReadState()?.AdapterId;
 
     internal static bool IsInstalledUtility(string? executable) => executable is not null
         && string.Equals(Path.GetFullPath(executable), InstalledUtilityPath, StringComparison.OrdinalIgnoreCase)

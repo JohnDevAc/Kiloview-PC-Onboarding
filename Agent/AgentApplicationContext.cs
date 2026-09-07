@@ -21,6 +21,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
     private bool _remoteLaunchPending;
     private bool _updatePending;
     private bool _outcomeReporting;
+    private bool _diagnosticReporting;
     private readonly Dictionary<string, string> _outcomeWarnings = new();
 
     public AgentApplicationContext(Icon icon, WaitHandle showStatusRequest)
@@ -144,6 +145,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
 
     private async Task ReconcileOutcomeAsync(AgentConfiguration configuration)
     {
+        _ = ReconcileDiagnosticsAsync(configuration);
         if (_outcomeReporting || _lifetime.IsCancellationRequested) return;
         _outcomeReporting = true;
         try
@@ -181,6 +183,22 @@ internal sealed class AgentApplicationContext : ApplicationContext
             WarnOutcome("Onboarding confirmation pending", "PC Agent will retry its saved outcome when Job Configurator is reachable. " + ex.Message);
         }
         finally { _outcomeReporting = false; }
+    }
+
+    private async Task ReconcileDiagnosticsAsync(AgentConfiguration configuration)
+    {
+        if (_diagnosticReporting || _lifetime.IsCancellationRequested) return;
+        _diagnosticReporting = true;
+        try
+        {
+            var delivery = OnboardingDiagnostics.Next(AgentStore.ConfigurationPath, configuration.EndpointId, configuration.AdapterId, DateTimeOffset.UtcNow);
+            var actual = AgentAddressResolver.Resolve(configuration);
+            if (delivery is null || actual is null) return;
+            using var client = OnboardingOutcomes.CreateClient(actual.Address);
+            await OnboardingDiagnostics.TrySendAsync(AgentStore.ConfigurationPath, delivery, client, _lifetime.Token);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException) { }
+        finally { _diagnosticReporting = false; }
     }
 
     private string? _lastOutcomeAttempt;
@@ -294,15 +312,28 @@ internal sealed class AgentApplicationContext : ApplicationContext
             return;
         _dispatcher.BeginInvoke((Action)(async () =>
         {
+            var trace = new OnboardingTrace();
+            trace.Step("launch-setup", "Starting the installed Setup utility after local approval; waiting for UAC.");
             try
             {
                 using var process = OpenRemoteOnboardingUtility(
                     request.ConfiguratorUrl,
                     request.RemoteAddress,
                     _configuration.EndpointId, request.AttemptId);
-                if (process is not null) await process.WaitForExitAsync(_lifetime.Token);
+                if (process is null) throw new IOException("Windows did not start PC Agent Setup.");
+                trace.Step("setup-exit", "Setup started. Waiting for its final exit status.");
+                await process.WaitForExitAsync(_lifetime.Token);
+                if (process.ExitCode != 0) throw new IOException($"PC Agent Setup exited with code {process.ExitCode}. Check the Setup failure report for this attempt.");
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                await OnboardingDiagnostics.CaptureRemoteAsync(AgentStore.ConfigurationPath, _configuration.EndpointId,
+                    request.AttemptId, request.RemoteAddress, _configuration.AdapterId,
+                    AgentAddressResolver.Resolve(_configuration)?.Address, typeof(AgentApplicationContext).Assembly.GetName().Version?.ToString() ?? "unknown", trace, ex);
+                if (!_dispatcher.IsDisposed && trace.CurrentStage == "launch-setup")
+                    MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
             finally
             {
                 _remoteLaunchPending = false;
@@ -478,37 +509,29 @@ internal sealed class AgentApplicationContext : ApplicationContext
         string endpointId,
         string? attemptId)
     {
-        try
+        var utility = ResolveOnboardingUtility();
+        if (!File.Exists(utility))
+            throw new FileNotFoundException("The installed NDI Configurator PC Agent Setup utility was not found.", utility);
+        var start = new ProcessStartInfo(utility)
         {
-            var utility = ResolveOnboardingUtility();
-            if (!File.Exists(utility))
-                throw new FileNotFoundException("The installed NDI Configurator PC Agent Setup utility was not found.", utility);
-            var start = new ProcessStartInfo(utility)
-            {
-                UseShellExecute = true,
-                Verb = "runas"
-            };
-            if (string.IsNullOrWhiteSpace(configuratorUrl))
-                throw new InvalidOperationException("The requesting Configurator URL is missing.");
-            start.ArgumentList.Add("--remote-onboarding");
-            start.ArgumentList.Add("--configurator");
-            start.ArgumentList.Add(configuratorUrl);
-            start.ArgumentList.Add("--requesting-address");
-            start.ArgumentList.Add(requestingAddress);
-            start.ArgumentList.Add("--endpoint-id");
-            start.ArgumentList.Add(endpointId);
-            if (attemptId is not null)
-            {
-                start.ArgumentList.Add("--attempt-id");
-                start.ArgumentList.Add(attemptId);
-            }
-            return Process.Start(start);
-        }
-        catch (Exception ex)
+            UseShellExecute = true,
+            Verb = "runas"
+        };
+        if (string.IsNullOrWhiteSpace(configuratorUrl))
+            throw new InvalidOperationException("The requesting Configurator URL is missing.");
+        start.ArgumentList.Add("--remote-onboarding");
+        start.ArgumentList.Add("--configurator");
+        start.ArgumentList.Add(configuratorUrl);
+        start.ArgumentList.Add("--requesting-address");
+        start.ArgumentList.Add(requestingAddress);
+        start.ArgumentList.Add("--endpoint-id");
+        start.ArgumentList.Add(endpointId);
+        if (attemptId is not null)
         {
-            MessageBox.Show(ex.Message, "NDI Configurator PC Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return null;
+            start.ArgumentList.Add("--attempt-id");
+            start.ArgumentList.Add(attemptId);
         }
+        return Process.Start(start);
     }
 
     private static string ResolveOnboardingUtility()
