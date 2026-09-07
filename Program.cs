@@ -1,4 +1,5 @@
 using System.Reflection;
+using NdiSuite.Onboarding;
 
 namespace KiloviewPcOnboarding;
 
@@ -18,11 +19,32 @@ internal static class Program
         catch (Exception ex)
         {
             if (args.Contains("--server-command", StringComparer.Ordinal))
-                Console.Write(System.Text.Json.JsonSerializer.Serialize(new ServerOnboardingResponse(
-                    1, false, NdiToolsService.UtilityVersion(), Error: ex.Message),
-                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+            {
+                var trace = new OnboardingTrace();
+                trace.Step("setup-startup", "Acquiring the Setup operation lock and starting the installed utility.");
+                using var output = Console.OpenStandardOutput();
+                System.Text.Json.JsonSerializer.Serialize(output, new ServerOnboardingResponse(
+                    1, false, NdiToolsService.UtilityVersion(), Error: ex.Message,
+                    FailureReport: trace.Failure(Guid.Empty.ToString("D"), Guid.NewGuid().ToString("D"), NdiToolsService.UtilityVersion(), ex)),
+                    new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            }
             else
+            {
+                try
+                {
+                    if (RemoteOptions(args) is { } remote)
+                    {
+                        var trace = new OnboardingTrace();
+                        trace.Step("setup-startup", "Starting Setup and checking the installed licence.");
+                        var network = AgentInstallationService.PreferredNetwork();
+                        OnboardingDiagnostics.CaptureRemoteAsync(AgentInstallationService.ConfigurationPath, remote.EndpointId,
+                            remote.AttemptId, remote.RequestingAddress, network?.Id ?? AgentInstallationService.ConfiguredAdapterId ?? "unknown",
+                            network?.Address, NdiToolsService.UtilityVersion(), trace, ex).GetAwaiter().GetResult();
+                    }
+                }
+                catch { /* Preserve the original startup error. Agent also records a failed Setup exit. */ }
                 MessageBox.Show(ex.Message, "NDI Configurator PC Agent Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
             return 1;
         }
     }
@@ -50,16 +72,10 @@ internal static class Program
         if (remote is not null)
         {
             if (!ConsentStore.IsAccepted("1.0"))
-            {
-                MessageBox.Show(
-                    "The NDI Configurator PC Agent EULA has not been accepted on this PC. Reinstall the agent locally first.",
-                    "NDI Configurator PC Agent Setup",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                return 1;
-            }
-            Application.Run(new RemoteOnboardingApplicationContext(remote));
-            return 0;
+                throw new InvalidOperationException("The NDI Configurator PC Agent EULA has not been accepted on this PC. Reinstall the agent locally first.");
+            using var context = new RemoteOnboardingApplicationContext(remote);
+            Application.Run(context);
+            return context.ExitCode;
         }
         if (AgentInstallationService.IsConfigured())
         {

@@ -19,11 +19,33 @@ internal static class RemoteOnboardingService
         RemoteOnboardingOptions options,
         CancellationToken ct)
     {
+        var trace = new OnboardingTrace();
+        try { return await ExecuteCoreAsync(options, trace, ct); }
+        catch (Exception ex)
+        {
+            try
+            {
+                var network = AgentInstallationService.PreferredNetwork();
+                await OnboardingDiagnostics.CaptureRemoteAsync(AgentInstallationService.ConfigurationPath,
+                    options.EndpointId, options.AttemptId, options.RequestingAddress,
+                    network?.Id ?? AgentInstallationService.ConfiguredAdapterId ?? "unknown", network?.Address,
+                    NdiToolsService.UtilityVersion(), trace, ex);
+            }
+            catch (Exception captureError) when (captureError is IOException or InvalidOperationException or UnauthorizedAccessException or TypeInitializationException) { }
+            throw;
+        }
+    }
+
+    private static async Task<RemoteOnboardingResult> ExecuteCoreAsync(RemoteOnboardingOptions options, OnboardingTrace trace, CancellationToken ct)
+    {
+        trace.Step("production-adapter", "Validating the requesting server and production adapter.");
         ValidateOptions(options);
         var current = AgentInstallationService.PreferredNetwork()
             ?? throw new InvalidOperationException(
                 "NDI Configurator PC Agent does not have a selected production adapter. Reinstall the agent locally first.");
+        trace.Step("fetch-configuration", "Fetching the approved settings from Job Configurator.");
         var configuration = await FetchConfigurationAsync(current, options, ct);
+        trace.Step("validate-configuration", "Validating endpoint, attempt and job identity.");
         ValidateConfiguration(configuration, options.EndpointId);
         if (!configuration.RequiresFinalConfirmation || !Guid.TryParse(options.AttemptId, out _) || configuration.AttemptId != options.AttemptId
             || string.IsNullOrWhiteSpace(configuration.JobId) || string.IsNullOrWhiteSpace(configuration.JobRevision))
@@ -33,13 +55,17 @@ internal static class RemoteOnboardingService
         using var execution = CancellationTokenSource.CreateLinkedTokenSource(ct);
         execution.CancelAfter(TimeSpan.FromMinutes(4));
         ct = execution.Token;
+        trace.Step("network-plan", "Validating the requested Windows network settings.");
         var plan = NetworkConfigurationService.CreatePlan(
             current,
             configuration.Network,
             options.RequestingAddress);
 
+        trace.Step("ndi-preflight", "Checking NDI clients and configuration files.");
         await NdiConfigurationService.PreflightAsync(ct);
+        trace.Step("ndi-version", "Checking installed NDI Tools and version information.");
         var ndi = await new NdiToolsService().CheckAsync(ct);
+        trace.Step("recovery-snapshot", "Locking configuration and capturing the recovery snapshot.");
         await using var mutationLock = await NdiConfigurationService.AcquireConfigurationLockAsync(ct);
         var recovery = NetworkConfigurationService.Capture(plan);
         var files = ConfigurationTransaction.CaptureFiles(NdiConfigurationService.ConfigurationPaths.Append(AgentInstallationService.ConfigurationPath));
@@ -48,49 +74,55 @@ internal static class RemoteOnboardingService
         OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
         var result = await ConfigurationTransaction.RunAsync(async () =>
         {
-        var network = await NetworkConfigurationService.ApplyAsync(
-            plan,
-            options.RequestingAddress,
-            ct);
-        var server = new JobConfiguratorInstance(
-            options.RequestingAddress,
-            options.ConfiguratorBaseUri,
-            "remote",
-            "managed",
-            configuration.JobName.Trim(),
-            configuration.NdiDiscoveryServerIp,
-            true);
-        NdiConfigurationService.EnsureApplicationsClosed();
-        await NdiConfigurationService.ApplyConfigurationFilesAsync(network, server, ct,
-            AgentInstallationService.PreviousJob(server.Address));
+            trace.Step("windows-network", "Applying and verifying Windows network settings.");
+            var network = await NetworkConfigurationService.ApplyAsync(
+                plan,
+                options.RequestingAddress,
+                ct);
+            var server = new JobConfiguratorInstance(
+                options.RequestingAddress,
+                options.ConfiguratorBaseUri,
+                "remote",
+                "managed",
+                configuration.JobName.Trim(),
+                configuration.NdiDiscoveryServerIp,
+                true);
+            trace.Step("ndi-configuration", "Applying and verifying the preferred interface, job groups and Discovery Server.");
+            NdiConfigurationService.EnsureApplicationsClosed();
+            await NdiConfigurationService.ApplyConfigurationFilesAsync(network, server, ct,
+                AgentInstallationService.PreviousJob(server.Address));
 
-        var installed = AgentInstallationService.InstallOrUpdate(network);
-        if (!installed.Installed)
-            throw new InvalidOperationException(installed.Message);
-        var request = new RegistrationRequest(
-            options.EndpointId,
-            Environment.MachineName,
-            network.Address,
-            network.Name,
-            network.PrefixLength,
-            true,
-            ndi.InstalledVersion?.ToString() ?? "not installed",
-            NdiToolsService.UtilityVersion(),
-            "1.0",
-            CurrentWindowsVersion(), configuration.AttemptId, configuration.JobId, configuration.JobRevision);
-        AgentInstallationService.RecordMembership(network, server);
-        await JobConfiguratorDiscovery.RegisterAsync(network, server, request, ct);
+            trace.Step("agent-configuration", "Refreshing agent configuration, startup and firewall scope.");
+            var installed = AgentInstallationService.InstallOrUpdate(network);
+            if (!installed.Installed)
+                throw new InvalidOperationException(installed.Message);
+            var request = new RegistrationRequest(
+                options.EndpointId,
+                Environment.MachineName,
+                network.Address,
+                network.Name,
+                network.PrefixLength,
+                true,
+                ndi.InstalledVersion?.ToString() ?? "not installed",
+                NdiToolsService.UtilityVersion(),
+                "1.0",
+                CurrentWindowsVersion(), configuration.AttemptId, configuration.JobId, configuration.JobRevision);
+            trace.Step("registration", "Recording job membership and registering the applied configuration with the server.");
+            AgentInstallationService.RecordMembership(network, server);
+            await JobConfiguratorDiscovery.RegisterAsync(network, server, request, ct);
 
-        var ndiAttentionRequired = NeedsNdiAttention(ndi);
-        return new RemoteOnboardingResult(
-            server.JobName,
-            network.Address,
-            network.PrefixLength,
-            plan.ChangesNetwork,
-            ndiAttentionRequired,
-            ndi.Message);
+            var ndiAttentionRequired = NeedsNdiAttention(ndi);
+            return new RemoteOnboardingResult(
+                server.JobName,
+                network.Address,
+                network.PrefixLength,
+                plan.ChangesNetwork,
+                ndiAttentionRequired,
+                ndi.Message);
         }, async recoveryToken =>
         {
+            var failedStage = trace.CurrentStage;
+            trace.Step("recovery", "Restoring the previous Windows, NDI and agent settings after failure at " + failedStage + ".");
             var failures = new List<Exception>();
             if (plan.ChangesNetwork)
                 try { await NetworkConfigurationService.RestoreAsync(recovery, options.RequestingAddress, recoveryToken); }
@@ -101,9 +133,11 @@ internal static class RemoteOnboardingService
             OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
             await TryReportOutcomeAsync(outcome, recoveryToken);
             if (failures.Count > 0) throw new AggregateException(failures);
+            trace.Step(failedStage, "Automatic recovery restored the previous configuration.");
         });
         // Once the local transaction succeeded, a lost final acknowledgement must
         // never undo it. Agent retries this durable outcome after Setup exits/restarts.
+        trace.Step("final-confirmation", "Saving the completed outcome and requesting server confirmation.");
         outcome = outcome with { Outcome = "completed", UpdatedUtc = DateTimeOffset.UtcNow };
         OnboardingOutcomes.Write(AgentInstallationService.ConfigurationPath, outcome);
         var confirmed = await TryReportOutcomeAsync(outcome, ct);

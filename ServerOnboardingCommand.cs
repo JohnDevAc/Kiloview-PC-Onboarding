@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NdiSuite.Onboarding;
 
 namespace KiloviewPcOnboarding;
 
@@ -22,7 +23,8 @@ internal sealed record ServerOnboardingResponse(
     bool Success,
     string Version,
     RegistrationRequest? Endpoint = null,
-    string? Error = null);
+    string? Error = null,
+    FailureReport? FailureReport = null);
 
 internal static class ServerOnboardingCommand
 {
@@ -35,8 +37,11 @@ internal static class ServerOnboardingCommand
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         ServerOnboardingResponse response;
+        var trace = new OnboardingTrace();
+        var endpointId = Guid.Empty.ToString("D");
         try
         {
+            trace.Step("read-command", "Reading and validating the local server command.");
             using var input = new StreamReader(Console.OpenStandardInput());
             var buffer = new char[16 * 1024 + 1];
             var count = await input.ReadBlockAsync(buffer.AsMemory(), timeout.Token);
@@ -59,22 +64,28 @@ internal static class ServerOnboardingCommand
             }
             else
             {
+                trace.Step("local-prerequisites", "Checking installed utility, existing licence and selected adapter.");
                 if (!AgentInstallationService.IsInstalledUtility(Environment.ProcessPath))
                     throw new InvalidOperationException("Local server onboarding requires the installed PC Agent Setup executable.");
                 if (!ConsentStore.IsAccepted("1.0"))
                     throw new InvalidOperationException("Install the PC Agent component and accept its license first.");
                 var network = ResolveNetwork(request, NetworkService.GetChoices());
-                var endpointId = ConsentStore.EndpointId();
+                endpointId = ConsentStore.EndpointId();
                 var configuration = new RemoteOnboardingConfiguration(1, "NDI Job Configurator", endpointId,
                     request.JobName!, request.NdiDiscoveryServerIp!, null);
                 RemoteOnboardingService.ValidateConfiguration(configuration, endpointId);
+                trace.Step("ndi-preflight", "Checking NDI clients and configuration files.");
                 await NdiConfigurationService.PreflightAsync(timeout.Token);
                 var server = new JobConfiguratorInstance(network.Address, new Uri($"http://{network.Address}:8091"),
                     "local", "managed", configuration.JobName.Trim(), configuration.NdiDiscoveryServerIp, true);
+                trace.Step("ndi-configuration", "Applying and verifying the preferred interface, job groups and Discovery Server.");
                 await NdiConfigurationService.ApplyAsync(network, server, timeout.Token);
+                trace.Step("agent-configuration", "Refreshing installed agent configuration, startup and firewall scope.");
                 var installed = AgentInstallationService.InstallOrUpdate(network);
                 if (!installed.Installed) throw new InvalidOperationException(installed.Message);
+                trace.Step("job-membership", "Recording the PC's job membership.");
                 AgentInstallationService.RecordMembership(network, server);
+                trace.Step("ndi-version", "Reading NDI Tools version information.");
                 var ndi = await new NdiToolsService().CheckAsync(timeout.Token);
                 var endpoint = new RegistrationRequest(endpointId, Environment.MachineName, network.Address,
                     network.Name, network.PrefixLength, true, ndi.InstalledVersion?.ToString() ?? "not installed",
@@ -84,7 +95,8 @@ internal static class ServerOnboardingCommand
         }
         catch (Exception ex)
         {
-            response = new(1, false, NdiToolsService.UtilityVersion(), Error: ex.Message);
+            response = new(1, false, NdiToolsService.UtilityVersion(), Error: ex.Message,
+                FailureReport: trace.Failure(endpointId, Guid.NewGuid().ToString("D"), NdiToolsService.UtilityVersion(), ex));
         }
         await using var output = Console.OpenStandardOutput();
         await JsonSerializer.SerializeAsync(output, response, Json);
