@@ -94,8 +94,7 @@ internal static class RemoteOnboardingService
 
             trace.Step("agent-configuration", "Refreshing agent configuration, startup and firewall scope.");
             var installed = AgentInstallationService.InstallOrUpdate(network);
-            if (!installed.Installed)
-                throw new InvalidOperationException(installed.Message);
+            installed.EnsureInstalled();
             var request = new RegistrationRequest(
                 options.EndpointId,
                 Environment.MachineName,

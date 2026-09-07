@@ -10,7 +10,14 @@ namespace KiloviewPcOnboarding;
 internal sealed record AgentInstallationResult(
     bool Installed,
     bool Started,
-    string Message);
+    string Message,
+    Exception? Failure = null)
+{
+    internal void EnsureInstalled()
+    {
+        if (!Installed) throw new InvalidOperationException(Message, Failure);
+    }
+}
 
 internal static class AgentInstallationService
 {
@@ -118,7 +125,7 @@ internal static class AgentInstallationService
             if (ex is PackageInstallation.RunningSetupRecoveryException)
             {
                 DeferredPackageRecovery.Queue(InstallDirectory);
-                return new(false, false, "Package recovery will finish after this Setup closes. Close this window, then retry onboarding or setup.");
+                return new(false, false, "Package recovery will finish after this Setup closes. Close this window, then retry onboarding or setup.", ex);
             }
             // A timed-out contender must not restart a process that the owner is replacing.
             if (installationLock is not null && !File.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery", "manifest.json"))
@@ -126,7 +133,7 @@ internal static class AgentInstallationService
                 && PackageInstallation.VersionOf(InstalledUtilityPath) is { } setupVersion
                 && PackageInstallation.Compare(agentVersion, setupVersion) == 0)
                 try { StartAgentIfNeeded(); } catch { /* The installation error remains primary. */ }
-            return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}");
+            return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}", ex);
         }
         finally { installationLock?.Dispose(); }
     }
