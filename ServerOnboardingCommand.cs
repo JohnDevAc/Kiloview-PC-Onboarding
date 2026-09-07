@@ -55,10 +55,11 @@ internal static class ServerOnboardingCommand
 
             if (request.Operation == "install")
             {
+                trace.Step("install-component", "Updating the complete installed Agent/Setup package, startup and firewall rules.");
                 if (!request.AcceptLicense)
                     throw new InvalidOperationException("The installer must include and accept the PC Agent license.");
                 var installed = AgentInstallationService.InstallOrUpdate(AgentInstallationService.PreferredNetwork());
-                if (!installed.Installed) throw new InvalidOperationException(installed.Message);
+                installed.EnsureInstalled();
                 ConsentStore.Record("1.0");
                 response = new(1, true, NdiToolsService.UtilityVersion());
             }
@@ -82,7 +83,7 @@ internal static class ServerOnboardingCommand
                 await NdiConfigurationService.ApplyAsync(network, server, timeout.Token);
                 trace.Step("agent-configuration", "Refreshing installed agent configuration, startup and firewall scope.");
                 var installed = AgentInstallationService.InstallOrUpdate(network);
-                if (!installed.Installed) throw new InvalidOperationException(installed.Message);
+                installed.EnsureInstalled();
                 trace.Step("job-membership", "Recording the PC's job membership.");
                 AgentInstallationService.RecordMembership(network, server);
                 trace.Step("ndi-version", "Reading NDI Tools version information.");

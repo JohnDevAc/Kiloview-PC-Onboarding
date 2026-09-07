@@ -1,5 +1,9 @@
 # NDI Configurator PC Agent developer handoff
 
+## Native firewall deployment correction — 7 September 2026
+
+Prepared Main 0.7.3 / Development 0.7.3-dev.1 after the authorized 0.7.2 deployment exposed an existing `INetFwRule.Interfaces` marshalling fault. Windows rejects `string[]`; the writer now sends `object[]` (a VARIANT array). A real, unregistered COM rule reproduces the old failure and verifies both corrected TCP/UDP policies without changing live firewall rules. Installation failures preserve their original exception in internal diagnostic reports. Both companion validation projects and the server regression/frontend/installer suites pass. The server 0.8.11 pair must bundle this separately published patch. Earlier preparation/publication notes below describe superseded checkpoints.
+
 ## Internal onboarding failure diagnostics — 7 September 2026
 
 Prepared for Main 0.7.2 and Development 0.7.2-dev.1. Setup/Agent capture bounded stage timelines and exception details, queue remote failures across restart/reconnection, and require a matching server acknowledgement before deleting queued reports. The queue retains at most 64 reports for seven days and backs off failed delivery without blocking outcome reconciliation. Local server failures return optional `failureReport` in the existing schema-1 response. Remote Setup now returns a failing exit code for failure, and Agent captures UAC/launch and abnormal exits without adding a second Setup result dialog. Diagnostics are for internal testing; no log viewer or report links are added to the UI. See the suite's `ONBOARDING-DIAGNOSTICS.md` for storage, retention, retrieval and validation. Both companion validation projects and the server integration suites passed using isolated paths before release preparation. Publish this repository before the matching Job Configurator 0.8.10 packages.

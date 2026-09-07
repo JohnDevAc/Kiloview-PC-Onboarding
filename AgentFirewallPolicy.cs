@@ -13,7 +13,8 @@ internal sealed record AgentFirewallPolicy(int Protocol, int Port, string Interf
         value.Profiles = int.MaxValue;
         value.LocalAddresses = "*";
         value.RemoteAddresses = "LocalSubnet";
-        value.Interfaces = new[] { InterfaceName };
+        // INetFwRule expects SAFEARRAY(VARIANT); string[] marshals as SAFEARRAY(BSTR).
+        value.Interfaces = new object[] { InterfaceName };
         value.ApplicationName = ApplicationPath;
         value.EdgeTraversal = false;
         value.Enabled = true;

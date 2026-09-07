@@ -9,6 +9,35 @@ internal static class QaRegression
         foreach (var address in new[] { "0.0.0.0", "127.0.0.1", "169.254.1.2", "224.0.0.1", "192.0.2.0", "192.0.2.255" })
             Check(!NdiSuite.Configuration.AgentConfigurationValidity.IsValid(1, endpoint, adapter, address, 24), "Unusable saved address was accepted.");
         Console.WriteLine("SETUP_PERSISTED_IDENTITY_VALIDATION=PASS");
+        // Exercise Windows' real VARIANT marshalling without adding a firewall rule.
+        var interfaceName = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .First(n => n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback).Name;
+        foreach (var (protocol, port) in new[] { (17, 8093), (6, 8094) })
+        {
+            var native = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FWRule")!)!;
+            try
+            {
+                var nativePolicy = new AgentFirewallPolicy(protocol, port, interfaceName, Path.Combine(root, "agent.exe"));
+                nativePolicy.Apply(native);
+                Check(nativePolicy.Matches(native), "Windows rejected the native interface-scoped firewall policy.");
+            }
+            finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(native); }
+        }
+        Console.WriteLine("NATIVE_FIREWALL_VARIANT_MARSHALLING=PASS");
+        var nativeFailure = new ArgumentException("Native firewall fixture failure");
+        try
+        {
+            new AgentInstallationResult(false, false, "Installation failed", nativeFailure).EnsureInstalled();
+            throw new Exception("Failed installation was accepted.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Check(ReferenceEquals(ex.InnerException, nativeFailure), "The native installation exception was discarded.");
+            var trace = new NdiSuite.Onboarding.OnboardingTrace();
+            var report = trace.Failure(endpoint, Guid.NewGuid().ToString(), "fixture", ex);
+            Check(report.StackTrace.Contains("Native firewall fixture failure"), "Diagnostic evidence lost the underlying installation fault.");
+        }
+        Console.WriteLine("INSTALLATION_DIAGNOSTIC_INNER_EXCEPTION=PASS");
         var policy = new AgentFirewallPolicy(17, 8093, "Production", Path.Combine(root, "agent.exe"));
         var rule = new FirewallFixture();
         policy.Apply(rule);
