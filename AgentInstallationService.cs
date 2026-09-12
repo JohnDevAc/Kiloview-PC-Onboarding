@@ -64,7 +64,51 @@ internal static class AgentInstallationService
         "agent-state.json");
 
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
+        => InstallOrUpdate(new InstallationPlan(network, false));
+
+    internal sealed record InstallationPlan(NetworkChoice? Network, bool PreserveConfiguration);
+
+    public static AgentInstallationResult UpgradePackage() => UpgradePackage(
+        StatePath, LegacyStatePath, NetworkService.GetChoices(), InstallOrUpdate);
+
+    internal static AgentInstallationResult UpgradePackage(string statePath, string legacyStatePath,
+        IReadOnlyList<NetworkChoice> choices, Func<InstallationPlan, AgentInstallationResult> install)
     {
+        var state = ReadUpgradeState(statePath) ?? ReadUpgradeState(legacyStatePath);
+        NetworkChoice? network = null;
+        if (state is not null)
+        {
+            var matches = choices.Where(n => n.Id.Equals(state.AdapterId, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (matches.Length == 0 || matches.Select(n => n.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 1)
+                throw new InvalidOperationException("The configured PC Agent adapter is unavailable or ambiguous. No package, startup or firewall changes were made.");
+            // Software upgrades retain the saved identity. Current addresses may be
+            // transient (including APIPA); the running Agent resolves usable DHCP
+            // addresses and waits when this adapter is unavailable.
+            network = new NetworkChoice(state.AdapterId, matches[0].Name, matches[0].Description, state.Address, state.PrefixLength);
+        }
+        ValidateInstallationNetwork(network);
+        return install(new InstallationPlan(network, true));
+    }
+
+    private static AgentState? ReadUpgradeState(string path)
+    {
+        try
+        {
+            var state = JsonSerializer.Deserialize<AgentState>(File.ReadAllText(path), Json);
+            if (!ValidState(state)) throw new InvalidDataException("The saved PC Agent configuration is invalid. Restore it before updating; no installation changes were made.");
+            return state;
+        }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        catch (JsonException ex) { throw new InvalidDataException("The saved PC Agent configuration could not be read. Restore it before updating; no installation changes were made.", ex); }
+    }
+
+    private static AgentInstallationResult InstallOrUpdate(InstallationPlan plan)
+    {
+        var network = plan.Network;
+        // Reject before acquiring the package lock or entering the recovery catch:
+        // a preflight failure must not stop, restart or replace an installed Agent.
+        ValidateInstallationNetwork(network);
         IDisposable? installationLock = null;
         try
         {
@@ -103,7 +147,7 @@ internal static class AgentInstallationService
                 if (sources.Count > 0) PackageInstallation.Replace(sources, () => { if (agentChanged) StopInstalledAgent(); });
             }
 
-            if (network is not null) UpdateConfiguration(network, null);
+            ApplyInstallationConfiguration(plan, selected => UpdateConfiguration(selected, null));
             ConfigureStartup();
             if (network is not null) ConfigureLanRules(network);
             RemoveFirewallRule(LegacyDiscoveryRuleName);
@@ -136,6 +180,18 @@ internal static class AgentInstallationService
             return new(false, false, $"NDI Configurator PC Agent installation failed: {ex.Message}", ex);
         }
         finally { installationLock?.Dispose(); }
+    }
+
+    internal static void ValidateInstallationNetwork(NetworkChoice? network)
+    {
+        if (network is not null && (string.IsNullOrWhiteSpace(network.Name)
+            || !NdiSuite.Configuration.AgentConfigurationValidity.IsValidNetwork(network.Id, network.Address, network.PrefixLength)))
+            throw new InvalidOperationException("The selected PC Agent network is not usable. No package, startup or firewall changes were made.");
+    }
+
+    internal static void ApplyInstallationConfiguration(InstallationPlan plan, Action<NetworkChoice> write)
+    {
+        if (plan.Network is not null && !plan.PreserveConfiguration) write(plan.Network);
     }
 
     internal static int RecoverInstalledPackage()
@@ -246,15 +302,18 @@ internal static class AgentInstallationService
             var state = File.Exists(path)
                 ? JsonSerializer.Deserialize<AgentState>(File.ReadAllText(path), Json)
                 : null;
-            return state is not null && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
-                state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
-                && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName)) ? state : null;
+            return ValidState(state) ? state : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             return null;
         }
     }
+
+    private static bool ValidState(AgentState? state) => state is not null
+        && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
+            state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
+        && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName));
 
     private static string? ResolveAgentPayload() => ResolveAgentPayload(AppContext.BaseDirectory);
 

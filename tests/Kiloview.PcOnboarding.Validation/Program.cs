@@ -9,6 +9,8 @@ try
     Directory.CreateDirectory(Path.GetDirectoryName(packagedAgent)!);
     await DiagnosticsValidation.RunAsync(testRoot);
     await QaRegression.RunAsync(testRoot);
+    await LocalTransactionValidation.RunAsync(testRoot);
+    UpgradeValidation.Run(testRoot);
     Require(PackageInstallation.Compare("0.7.0-dev.2", "0.7.0") < 0
         && PackageInstallation.Compare("0.7.0-dev.10", "0.7.0-dev.2") > 0
         && PackageInstallation.Compare("0.7.0.0+build", "0.7.0") == 0, "Package version ordering is inconsistent.");

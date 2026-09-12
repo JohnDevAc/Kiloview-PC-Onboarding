@@ -1,5 +1,9 @@
 # NDI Configurator PC Agent developer handoff
 
+## Local QA release candidates - 12 September 2026
+
+Prepared 0.7.4 (Production) / 0.7.4-dev.1 (Development) with QA A1/A2 and the shared upgrade correction that preserves saved configuration during APIPA. These supersede the initial local candidates. See [release notes](docs/releases/v0.7.4.md) for scope, validation and limits. Candidates remain local until separately authorized publication; no installation or live configuration change is implied. Earlier entries describe historical checkpoints.
+
 ## Native firewall deployment correction — 7 September 2026
 
 Prepared Main 0.7.3 / Development 0.7.3-dev.1 after the authorized 0.7.2 deployment exposed an existing `INetFwRule.Interfaces` marshalling fault. Windows rejects `string[]`; the writer now sends `object[]` (a VARIANT array). A real, unregistered COM rule reproduces the old failure and verifies both corrected TCP/UDP policies without changing live firewall rules. Installation failures preserve their original exception in internal diagnostic reports. Both companion validation projects and the server regression/frontend/installer suites pass. The server 0.8.11 pair must bundle this separately published patch. Earlier preparation/publication notes below describe superseded checkpoints.

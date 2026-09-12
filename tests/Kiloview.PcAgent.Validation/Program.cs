@@ -23,7 +23,10 @@ var adapter = NetworkInterface.GetAllNetworkInterfaces()
             Address = address.Address,
             address.PrefixLength
         }))
-    .First();
+    .Where(item => NdiSuite.Configuration.AgentConfigurationValidity.IsValid(1,
+        "11111111-1111-1111-1111-111111111111", item.Id, item.Address.ToString(), item.PrefixLength))
+    .FirstOrDefault()
+    ?? throw new InvalidOperationException("Agent validation requires an up adapter with a usable unicast IPv4 host address (/1 to /30); loopback and link-local addresses are unsupported.");
 var configuration = new AgentConfiguration(
     1,
     Guid.NewGuid().ToString("D"),
@@ -146,7 +149,7 @@ var testJson = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteInde
 await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(configuration, testJson));
 foreach (var invalid in new[] { configuration with { SchemaVersion = 2 }, configuration with { EndpointId = Guid.Empty.ToString() },
     configuration with { AdapterId = "" }, configuration with { Address = "127.0.0.1" }, configuration with { PrefixLength = 0 },
-    configuration with { Memberships = null! } })
+    configuration with { Memberships = null! }, configuration with { Address = "169.254.183.231" }, configuration with { PrefixLength = 32 } })
 {
     await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(invalid, testJson));
     if (AgentStore.Read() is not null) throw new Exception("Invalid persisted Agent identity was accepted.");
