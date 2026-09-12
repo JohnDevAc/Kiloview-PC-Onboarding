@@ -79,13 +79,7 @@ internal static class Program
         }
         if (AgentInstallationService.IsConfigured())
         {
-            var network = AgentInstallationService.PreferredNetwork();
-            var update = network is null
-                ? new AgentInstallationResult(
-                    false,
-                    false,
-                    "The installed NDI Configurator PC Agent network selection could not be read.")
-                : AgentInstallationService.InstallOrUpdate(network);
+            var update = AgentInstallationService.UpgradePackage();
             MessageBox.Show(
                 update.Installed
                     ? "NDI Configurator PC Agent is installed and up to date. Onboarding must be started remotely from NDI Job Configurator."

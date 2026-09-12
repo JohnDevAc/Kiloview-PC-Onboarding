@@ -58,7 +58,7 @@ internal static class ServerOnboardingCommand
                 trace.Step("install-component", "Updating the complete installed Agent/Setup package, startup and firewall rules.");
                 if (!request.AcceptLicense)
                     throw new InvalidOperationException("The installer must include and accept the PC Agent license.");
-                var installed = AgentInstallationService.InstallOrUpdate(AgentInstallationService.PreferredNetwork());
+                var installed = AgentInstallationService.UpgradePackage();
                 installed.EnsureInstalled();
                 ConsentStore.Record("1.0");
                 response = new(1, true, NdiToolsService.UtilityVersion());
@@ -80,17 +80,21 @@ internal static class ServerOnboardingCommand
                 var server = new JobConfiguratorInstance(network.Address, new Uri($"http://{network.Address}:8091"),
                     "local", "managed", configuration.JobName.Trim(), configuration.NdiDiscoveryServerIp, true);
                 trace.Step("ndi-configuration", "Applying and verifying the preferred interface, job groups and Discovery Server.");
-                await NdiConfigurationService.ApplyAsync(network, server, timeout.Token);
-                trace.Step("agent-configuration", "Refreshing installed agent configuration, startup and firewall scope.");
-                var installed = AgentInstallationService.InstallOrUpdate(network);
-                installed.EnsureInstalled();
-                trace.Step("job-membership", "Recording the PC's job membership.");
-                AgentInstallationService.RecordMembership(network, server);
-                trace.Step("ndi-version", "Reading NDI Tools version information.");
-                var ndi = await new NdiToolsService().CheckAsync(timeout.Token);
-                var endpoint = new RegistrationRequest(endpointId, Environment.MachineName, network.Address,
-                    network.Name, network.PrefixLength, true, ndi.InstalledVersion?.ToString() ?? "not installed",
-                    NdiToolsService.UtilityVersion(), "1.0", RuntimeInformation.OSDescription.Trim());
+                var endpoint = await ApplyConfigurationAsync(network, server, AgentInstallationService.ConfigurationPath,
+                    AgentInstallationService.PreviousJob(server.Address), async () =>
+                    {
+                        trace.Step("agent-configuration", "Refreshing installed agent configuration, startup and firewall scope.");
+                        var installed = AgentInstallationService.InstallOrUpdate(network);
+                        installed.EnsureInstalled();
+                        timeout.Token.ThrowIfCancellationRequested();
+                        trace.Step("job-membership", "Recording the PC's job membership.");
+                        AgentInstallationService.RecordMembership(network, server);
+                        trace.Step("ndi-version", "Reading NDI Tools version information.");
+                        var ndi = await new NdiToolsService().CheckAsync(timeout.Token);
+                        return new RegistrationRequest(endpointId, Environment.MachineName, network.Address,
+                            network.Name, network.PrefixLength, true, ndi.InstalledVersion?.ToString() ?? "not installed",
+                            NdiToolsService.UtilityVersion(), "1.0", RuntimeInformation.OSDescription.Trim());
+                    }, timeout.Token);
                 response = new(1, true, NdiToolsService.UtilityVersion(), endpoint);
             }
         }
@@ -102,6 +106,25 @@ internal static class ServerOnboardingCommand
         await using var output = Console.OpenStandardOutput();
         await JsonSerializer.SerializeAsync(output, response, Json);
         return response.Success ? 0 : 1;
+    }
+
+    internal static async Task<T> ApplyConfigurationAsync<T>(NetworkChoice network, JobConfiguratorInstance server,
+        string agentStatePath, string? previousJob, Func<Task<T>> complete, CancellationToken ct)
+    {
+        NdiConfigurationService.EnsureApplicationsClosed();
+        await using var configurationLock = await NdiConfigurationService.AcquireConfigurationLockAsync(ct);
+        var snapshot = ConfigurationTransaction.CaptureFiles(NdiConfigurationService.ConfigurationPaths.Append(agentStatePath));
+        return await ConfigurationTransaction.RunAsync(async () =>
+        {
+            await NdiConfigurationService.ApplyConfigurationFilesAsync(network, server, ct, previousJob);
+            var result = await complete();
+            ct.ThrowIfCancellationRequested();
+            return result;
+        }, _ =>
+        {
+            ConfigurationTransaction.RestoreFiles(snapshot);
+            return Task.CompletedTask;
+        });
     }
 
     internal static void Validate(ServerOnboardingRequest request)
