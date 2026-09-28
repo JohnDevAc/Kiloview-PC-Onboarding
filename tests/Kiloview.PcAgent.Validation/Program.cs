@@ -9,6 +9,17 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+var nameRequest = new MulticastConfigurationRequest(1, Guid.NewGuid().ToString(), "test", "adapter", "unicast", false, false, null, null, null);
+foreach (var name in new[] { "a", "SHOW", "123", "show with spaces", "演出-é & stage!", new string('x', 248), new string('é', 124) })
+    AgentMulticastService.ValidateRequest(nameRequest with { JobName = name });
+foreach (var name in new[] { "", "   ", "a,b", "a\0b", "a\nb", new string('x', 249), new string('é', 125) })
+{
+    try { AgentMulticastService.ValidateRequest(nameRequest with { JobName = name }); }
+    catch (AgentApiException ex) when (ex.StatusCode == 400) { continue; }
+    throw new Exception("An invalid NDI multicast job name was accepted.");
+}
+Console.WriteLine("AGENT_NDI_JOB_NAME_COMPATIBILITY=PASS");
+
 var adapter = NetworkInterface.GetAllNetworkInterfaces()
     .Where(item => item.OperationalStatus == OperationalStatus.Up
         && item.NetworkInterfaceType is not NetworkInterfaceType.Loopback

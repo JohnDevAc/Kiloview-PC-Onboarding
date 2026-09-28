@@ -132,10 +132,18 @@ internal static class NdiConfigurationService
         "Access Manager",
         "NDI Access Manager");
 
-    internal static string ReplaceManagedGroup(string? groups, string? previous, string next) => string.Join(',',
-        (groups ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(group => !string.Equals(group, previous, StringComparison.OrdinalIgnoreCase))
-            .Append(next).Distinct(StringComparer.OrdinalIgnoreCase));
+    internal static string ReplaceManagedGroup(string? groups, string? previous, string next)
+    {
+        if (!NdiSuite.Configuration.NdiGroupName.IsValid(next))
+            throw new InvalidOperationException("Job Name must be a non-empty NDI group name without commas or control characters, up to 248 UTF-8 bytes.");
+        var updated = string.Join(',',
+            (groups ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(group => !string.Equals(group, previous, StringComparison.OrdinalIgnoreCase))
+                .Append(next).Distinct(StringComparer.OrdinalIgnoreCase));
+        if (!NdiSuite.Configuration.NdiGroupName.ListFits(updated))
+            throw new InvalidOperationException("The Job Name and existing NDI groups exceed the combined 248-byte limit. Shorten the Job Name or remove unused groups in NDI Access Manager.");
+        return updated;
+    }
 
     private static bool IsDiscoveryRunning() => IsAnyProcessRunning(
         DiscoveryUiProcessName);

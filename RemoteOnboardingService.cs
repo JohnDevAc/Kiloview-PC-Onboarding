@@ -175,10 +175,8 @@ internal static class RemoteOnboardingService
             throw new InvalidOperationException(
                 "The remote configuration does not match this PC's endpoint identity.");
         var jobName = configuration.JobName?.Trim();
-        if (string.IsNullOrWhiteSpace(jobName)
-            || jobName.Length > 128
-            || jobName.Any(char.IsControl))
-            throw new InvalidOperationException("The remote job name is invalid.");
+        if (!NdiSuite.Configuration.NdiGroupName.IsValid(jobName))
+            throw new InvalidOperationException("The remote job name must be a non-empty NDI group name without commas or control characters, up to 248 UTF-8 bytes.");
         if (!IPAddress.TryParse(configuration.NdiDiscoveryServerIp, out var discovery)
             || discovery.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork
             || discovery.Equals(IPAddress.Any)

@@ -187,10 +187,8 @@ internal static class AgentMulticastService
     {
         if (request.SchemaVersion != 1)
             throw new AgentApiException(400, "Only multicast configuration schema version 1 is supported.");
-        if (string.IsNullOrWhiteSpace(request.JobName)
-            || request.JobName.Length > 128
-            || request.JobName.Any(char.IsControl))
-            throw new AgentApiException(400, "The multicast job name is invalid.");
+        if (!NdiSuite.Configuration.NdiGroupName.IsValid(request.JobName))
+            throw new AgentApiException(400, "The multicast job name must be a non-empty NDI group name without commas or control characters, up to 248 UTF-8 bytes.");
 
         var mode = request.Mode;
         if (mode == "unicast")

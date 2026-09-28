@@ -10,6 +10,7 @@ try
     await DiagnosticsValidation.RunAsync(testRoot);
     await QaRegression.RunAsync(testRoot);
     await LocalTransactionValidation.RunAsync(testRoot);
+    await NdiGroupValidation.RunAsync(testRoot);
     UpgradeValidation.Run(testRoot);
     Require(PackageInstallation.Compare("0.7.0-dev.2", "0.7.0") < 0
         && PackageInstallation.Compare("0.7.0-dev.10", "0.7.0-dev.2") > 0
@@ -105,6 +106,12 @@ try
             "192.168.50.1",
             ["192.168.50.2", "192.168.50.3"]));
     RemoteOnboardingService.ValidateConfiguration(configuration, endpointId);
+    foreach (var name in new[] { "a", "SHOW", "123", "show with spaces", "演出-é & stage!", new string('x', 248), new string('é', 124) })
+        RemoteOnboardingService.ValidateConfiguration(configuration with { JobName = name }, endpointId);
+    foreach (var name in new[] { "", "   ", "a,b", "a\0b", "a\nb", new string('x', 249), new string('é', 125) })
+        RequireThrows(() => RemoteOnboardingService.ValidateConfiguration(configuration with { JobName = name }, endpointId),
+            "An invalid NDI job name was accepted for onboarding.");
+    Console.WriteLine("NDI_JOB_NAME_COMPATIBILITY=PASS");
     RemoteOnboardingService.ValidateConfiguration(
         configuration with { Product = "Kiloview Job Configurator" },
         endpointId);
@@ -187,6 +194,12 @@ try
         "Replacing a managed job must retain unrelated groups and remove the previous job.");
     Require(NdiConfigurationService.ReplaceManagedGroup("Public,NextJob", "OldJob", "NextJob") == "Public,NextJob",
         "Managed job reapplication must be idempotent.");
+    Require(NdiConfigurationService.ReplaceManagedGroup("Public,OldJob", "OldJob", new string('x', 241)).Length == 248,
+        "A combined NDI group list at the byte limit was rejected.");
+    RequireThrows(() => NdiConfigurationService.ReplaceManagedGroup("Public,OldJob", "OldJob", new string('x', 242)),
+        "The combined NDI group list exceeded 248 bytes.");
+    RequireThrows(() => NdiConfigurationService.ReplaceManagedGroup("Public", null, new string('é', 121)),
+        "The combined NDI group list limit ignored UTF-8 encoding.");
     Console.WriteLine("LOCAL_SERVER_COMMAND_BOUNDARY=PASS");
     Console.WriteLine("LOCAL_SERVER_INSTALLED_UTILITY=PASS");
     Console.WriteLine("NDI_MANAGED_GROUP_REPLACEMENT=PASS");

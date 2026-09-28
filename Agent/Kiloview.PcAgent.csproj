@@ -26,6 +26,7 @@
     <Compile Include="..\OnboardingDiagnostics.cs" Link="OnboardingDiagnostics.cs" />
     <Compile Include="..\SetupOperationLease.cs" Link="SetupOperationLease.cs" />
     <Compile Include="..\AgentConfigurationValidity.cs" Link="AgentConfigurationValidity.cs" />
+    <Compile Include="..\NdiGroupName.cs" Link="NdiGroupName.cs" />
     <EmbeddedResource Include="..\assets\PcAgent.ico" Link="assets\PcAgent.ico" LogicalName="KiloviewPcAgent.BrandIcon.ico" />
   </ItemGroup>
 </Project>
