@@ -10,6 +10,15 @@ internal static class Program
     {
         try
         {
+            var lifecycle = Argument(args, "--lifecycle-request");
+            if (args.Contains("--lifecycle-request", StringComparer.Ordinal) && lifecycle is null) return 1;
+            if (lifecycle is not null && (args.Contains("--uninstall", StringComparer.Ordinal) || args.Contains("--server-command", StringComparer.Ordinal))) return 1;
+            if (lifecycle is not null) return AgentLifecycle.Run(lifecycle, args);
+            if (args.Contains("--uninstall", StringComparer.Ordinal))
+                return AgentInstallationService.RunInteractiveUninstall();
+            if (args.Contains("--server-command", StringComparer.Ordinal) && !AgentLifecycle.IsAdministrator())
+                throw new InvalidOperationException("The local server command requires the server's existing administrator context.");
+            if (!AgentLifecycle.IsAdministrator()) return AgentLifecycle.Elevate(args);
             var recovery = args.FirstOrDefault() == "--recover-installed-package";
             if (recovery) DeferredPackageRecovery.WaitForParent(args);
             using var operation = SetupOperationLease.Acquire();
@@ -45,7 +54,7 @@ internal static class Program
                 catch { /* Preserve the original startup error. Agent also records a failed Setup exit. */ }
                 MessageBox.Show(ex.Message, "NDI Configurator PC Agent Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            return 1;
+            return ex is LifecycleBusyException ? 1618 : 1;
         }
     }
 
@@ -92,11 +101,12 @@ internal static class Program
         if (!ConsentStore.IsAccepted("1.0"))
         {
             using var agreement = new EulaForm(icon);
-            if (agreement.ShowDialog() != DialogResult.OK) return 2;
+            if (agreement.ShowDialog() != DialogResult.OK) return 1602;
             ConsentStore.Record("1.0");
         }
-        Application.Run(new MainForm(icon));
-        return 0;
+        using var form = new MainForm(icon);
+        Application.Run(form);
+        return form.ExitCode;
     }
 
     internal static RemoteOnboardingOptions? RemoteOptions(string[] args)
@@ -124,7 +134,7 @@ internal static class Program
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
     }
 
-    private static Icon LoadIcon()
+    internal static Icon LoadIcon()
     {
         using var stream = Assembly.GetExecutingAssembly()
             .GetManifestResourceStream("KiloviewPcOnboarding.BrandIcon.ico")

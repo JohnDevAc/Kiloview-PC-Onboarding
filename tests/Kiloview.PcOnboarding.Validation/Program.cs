@@ -1,5 +1,21 @@
 using KiloviewPcOnboarding;
 
+if (args.Length >= 2 && args[0] == "--lifecycle-fixture")
+{
+    Environment.ExitCode = LifecycleValidation.Fixture(args[1], args.Length > 2 ? args[2] : "succeeded");
+    return;
+}
+if (args.Length == 2 && args[0] == "--firewall-removal-validation")
+{
+    FirewallRemovalValidation.Run(args[1]);
+    return;
+}
+if (args.Length == 2 && args[0] == "--lifecycle-target-validation")
+{
+    LifecycleTargetValidation.Run(args[1]);
+    return;
+}
+
 var testRoot = Path.Combine(Path.GetTempPath(), $"Kiloview-Payload-{Guid.NewGuid():N}");
 var packagedAgent = Path.Combine(testRoot, "Agent", "NDI Configurator PC Agent.exe");
 var installedAgent = Path.Combine(testRoot, "NDI Configurator PC Agent.exe");
@@ -7,6 +23,9 @@ var installedAgent = Path.Combine(testRoot, "NDI Configurator PC Agent.exe");
 try
 {
     Directory.CreateDirectory(Path.GetDirectoryName(packagedAgent)!);
+    LifecycleValidation.Run(testRoot);
+    LifecycleTargetValidation.Run(testRoot);
+    FirewallRemovalValidation.Run(testRoot);
     await DiagnosticsValidation.RunAsync(testRoot);
     await QaRegression.RunAsync(testRoot);
     await LocalTransactionValidation.RunAsync(testRoot);

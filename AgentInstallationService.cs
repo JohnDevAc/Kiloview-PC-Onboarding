@@ -19,7 +19,7 @@ internal sealed record AgentInstallationResult(
     }
 }
 
-internal static class AgentInstallationService
+internal static partial class AgentInstallationService
 {
     internal const int DiscoveryPort = 8093;
     internal const int ApiPort = 8094;
@@ -66,13 +66,13 @@ internal static class AgentInstallationService
     public static AgentInstallationResult InstallOrUpdate(NetworkChoice? network)
         => InstallOrUpdate(new InstallationPlan(network, false));
 
-    internal sealed record InstallationPlan(NetworkChoice? Network, bool PreserveConfiguration);
+    internal sealed record InstallationPlan(NetworkChoice? Network, bool PreserveConfiguration, string? RequestedVersion = null);
 
-    public static AgentInstallationResult UpgradePackage() => UpgradePackage(
-        StatePath, LegacyStatePath, NetworkService.GetChoices(), InstallOrUpdate);
+    public static AgentInstallationResult UpgradePackage(string? requestedVersion = null) => UpgradePackage(
+        StatePath, LegacyStatePath, NetworkService.GetChoices(), InstallOrUpdate, requestedVersion);
 
     internal static AgentInstallationResult UpgradePackage(string statePath, string legacyStatePath,
-        IReadOnlyList<NetworkChoice> choices, Func<InstallationPlan, AgentInstallationResult> install)
+        IReadOnlyList<NetworkChoice> choices, Func<InstallationPlan, AgentInstallationResult> install, string? requestedVersion = null)
     {
         var state = ReadUpgradeState(statePath) ?? ReadUpgradeState(legacyStatePath);
         NetworkChoice? network = null;
@@ -87,7 +87,7 @@ internal static class AgentInstallationService
             network = new NetworkChoice(state.AdapterId, matches[0].Name, matches[0].Description, state.Address, state.PrefixLength);
         }
         ValidateInstallationNetwork(network);
-        return install(new InstallationPlan(network, true));
+        return install(new InstallationPlan(network, true, requestedVersion));
     }
 
     private static AgentState? ReadUpgradeState(string path)
@@ -109,25 +109,31 @@ internal static class AgentInstallationService
         // Reject before acquiring the package lock or entering the recovery catch:
         // a preflight failure must not stop, restart or replace an installed Agent.
         ValidateInstallationNetwork(network);
+        ValidateLifecycleOwner();
         IDisposable? installationLock = null;
+        var mutationStarted = false;
         try
         {
-            installationLock = PackageInstallation.AcquireInstallationLock();
-            if (Directory.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery")))
-            {
-                StopInstalledAgent();
-                PackageInstallation.Recover(InstallDirectory);
-            }
             var sourceAgent = ResolveAgentPayload()
                 ?? throw new InvalidOperationException("The PC Agent payload is missing. Run Setup from its complete release package.");
             var runningUtility = Environment.ProcessPath
                 ?? throw new InvalidOperationException("The onboarding executable path is unavailable.");
+            LifecycleOperation.SafePath(sourceAgent);
+            LifecycleOperation.SafePath(runningUtility);
             var packageVersion = PackageInstallation.VersionOf(runningUtility)
                 ?? throw new InvalidOperationException("The complete Setup executable is required.");
-            if (PackageInstallation.Compare(PackageInstallation.VersionOf(sourceAgent)!, packageVersion) != 0)
-                throw new InvalidOperationException("The Agent and Setup payload versions do not match.");
+            PackageInstallation.ValidatePackageTarget(packageVersion, PackageInstallation.VersionOf(sourceAgent), plan.RequestedVersion);
+            installationLock = PackageInstallation.AcquireInstallationLock();
+            if (Directory.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery")))
+            {
+                mutationStarted = true;
+                StopInstalledAgent();
+                PackageInstallation.Recover(InstallDirectory);
+            }
             var retain = PackageInstallation.Retain(PackageInstallation.VersionOf(InstalledAgentPath),
-                PackageInstallation.VersionOf(InstalledUtilityPath), packageVersion);
+                PackageInstallation.VersionOf(InstalledUtilityPath), packageVersion, plan.RequestedVersion);
+            mutationStarted = true;
+            if (!retain) PrepareMaintenance(runningUtility, sourceAgent);
             Directory.CreateDirectory(InstallDirectory);
             Directory.CreateDirectory(StateDirectory);
             MigrateLegacyState();
@@ -149,20 +155,17 @@ internal static class AgentInstallationService
 
             ApplyInstallationConfiguration(plan, selected => UpdateConfiguration(selected, null));
             ConfigureStartup();
+            if (!retain) RegisterInstalledApplication();
             if (network is not null) ConfigureLanRules(network);
             RemoveFirewallRule(LegacyDiscoveryRuleName);
             RemoveFirewallRule(LegacyApiRuleName);
             RemoveFirewallRule(LegacyPingRuleName);
             StopLegacyAgent();
             var started = network is not null && StartAgentIfNeeded();
-            return new(
-                true,
-                started,
-                started
-                    ? $"NDI Configurator PC Agent installed · discovery UDP {DiscoveryPort} · monitoring TCP {ApiPort}"
-                    : network is null
-                        ? "PC Agent installed. Select this server's adapter during Job Configurator onboarding to activate it."
-                        : "NDI Configurator PC Agent installed and will start at the next user logon.");
+            var removalJournal = Path.Combine(InstallDirectory, "removal-state.json");
+            LifecycleOperation.SafePath(removalJournal);
+            if (File.Exists(removalJournal)) File.Delete(removalJournal);
+            return CompletedInstallationResult(network, started);
         }
         catch (Exception ex)
         {
@@ -172,7 +175,7 @@ internal static class AgentInstallationService
                 return new(false, false, "Package recovery will finish after this Setup closes. Close this window, then retry onboarding or setup.", ex);
             }
             // A timed-out contender must not restart a process that the owner is replacing.
-            if (installationLock is not null && !File.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery", "manifest.json"))
+            if (mutationStarted && installationLock is not null && !File.Exists(Path.Combine(InstallDirectory, ".pc-agent-install-recovery", "manifest.json"))
                 && PackageInstallation.VersionOf(InstalledAgentPath) is { } agentVersion
                 && PackageInstallation.VersionOf(InstalledUtilityPath) is { } setupVersion
                 && PackageInstallation.Compare(agentVersion, setupVersion) == 0)
@@ -181,6 +184,15 @@ internal static class AgentInstallationService
         }
         finally { installationLock?.Dispose(); }
     }
+
+    internal static AgentInstallationResult CompletedInstallationResult(NetworkChoice? network, bool started) => new(
+        true,
+        started,
+        started
+            ? $"NDI Configurator PC Agent installed · discovery UDP {DiscoveryPort} · monitoring TCP {ApiPort}"
+            : network is null
+                ? "PC Agent installed. Open PC Agent Setup to select the network adapter and start monitoring."
+                : "PC Agent installed. Monitoring startup has not yet been confirmed.");
 
     internal static void ValidateInstallationNetwork(NetworkChoice? network)
     {
@@ -313,7 +325,11 @@ internal static class AgentInstallationService
     private static bool ValidState(AgentState? state) => state is not null
         && NdiSuite.Configuration.AgentConfigurationValidity.IsValid(
             state.SchemaVersion, state.EndpointId, state.AdapterId, state.Address, state.PrefixLength)
-        && state.Memberships is not null && state.Memberships.All(m => m is not null && !string.IsNullOrWhiteSpace(m.JobName));
+        && state.Memberships is not null && state.Memberships.All(m => m is not null
+            && NdiSuite.Configuration.NdiGroupName.IsValid(m.JobName)
+            && IPAddress.TryParse(m.ServerAddress, out var server) && server.AddressFamily == AddressFamily.InterNetwork
+            && Uri.TryCreate(m.BaseUri, UriKind.Absolute, out var uri) && uri.Scheme == "http"
+            && uri.Host == m.ServerAddress && string.IsNullOrEmpty(uri.UserInfo));
 
     private static string? ResolveAgentPayload() => ResolveAgentPayload(AppContext.BaseDirectory);
 
@@ -510,6 +526,7 @@ internal static class AgentInstallationService
     private static void StopInstalledAgent()
     {
         StopAgentProcesses("NDI Configurator PC Agent", InstalledAgentPath);
+        if (IsAgentRunning()) throw new IOException("The installed Agent did not stop; its package was not replaced.");
     }
 
     private static void StopLegacyAgent()

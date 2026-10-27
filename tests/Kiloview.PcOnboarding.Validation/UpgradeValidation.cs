@@ -26,7 +26,7 @@ internal static class UpgradeValidation
             AgentInstallationService.ApplyInstallationConfiguration(plan,
                 network => File.WriteAllText(statePath, JsonSerializer.Serialize(new { address = network.Address })));
             File.WriteAllText(Path.Combine(directory, "package-installed"), "fixture");
-            return new(true, plan.Network is not null, "fixture");
+            return AgentInstallationService.CompletedInstallationResult(plan.Network, plan.Network is not null);
         }
         var apipa = new NetworkChoice(adapter, "Ethernet", "Fixture", "169.254.183.231", 16);
         var wifi = new NetworkChoice(Guid.NewGuid().ToString("B"), "Wi-Fi", "Fixture", "192.0.2.105", 24);
@@ -78,10 +78,23 @@ internal static class UpgradeValidation
         Check(lastPlan is { PreserveConfiguration: true, Network.Address: "192.0.2.15" }
             && File.ReadAllText(legacyPath) == original && !File.Exists(statePath), "Legacy upgrade lost its saved identity.");
         File.Delete(legacyPath);
-        AgentInstallationService.UpgradePackage(statePath, legacyPath, [wifi], InstallFixture);
+        result = AgentInstallationService.UpgradePackage(statePath, legacyPath, [wifi], InstallFixture);
         Check(lastPlan is { PreserveConfiguration: true, Network: null } && !File.Exists(statePath),
             "New unconfigured installation silently selected a network.");
         Console.WriteLine("UPGRADE_LEGACY_AND_NEW_UNCONFIGURED_CONTROLS=PASS");
+        Check(result.Installed && !result.Started
+            && result.Message.Contains("Open PC Agent Setup", StringComparison.Ordinal)
+            && result.Message.Contains("network adapter", StringComparison.Ordinal)
+            && !result.Message.Contains("server", StringComparison.OrdinalIgnoreCase)
+            && !result.Message.Contains("Job Configurator", StringComparison.Ordinal),
+            "Standalone package installation must direct adapter completion to local PC Agent Setup without requiring a server.");
+        Console.WriteLine("STANDALONE_INSTALL_ADAPTER_COMPLETION_GUIDANCE=PASS");
+
+        var unconfirmed = AgentInstallationService.CompletedInstallationResult(wifi, false);
+        Check(unconfirmed.Installed && !unconfirmed.Started
+            && unconfirmed.Message == "PC Agent installed. Monitoring startup has not yet been confirmed.",
+            "Configured installation must preserve Installed=true/Started=false and report unconfirmed monitoring without asserting next-logon timing.");
+        Console.WriteLine("INSTALLATION_UNCONFIRMED_MONITORING_GUIDANCE=PASS");
 
         foreach (var invalid in new[] { apipa, wifi with { Id = "invalid" }, wifi with { Address = "127.0.0.1" }, wifi with { PrefixLength = 32 }, wifi with { Name = "" } })
             Reject(() => AgentInstallationService.ValidateInstallationNetwork(invalid));

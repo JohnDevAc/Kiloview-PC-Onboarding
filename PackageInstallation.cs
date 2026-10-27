@@ -51,13 +51,34 @@ internal static class PackageInstallation
         return 0;
     }
 
-    internal static bool Retain(string? agent, string? setup, string package)
+    internal static void ValidateRequestedVersion(string? requested, string? actual)
     {
+        if (requested is null) return;
+        // Lifecycle targets are binary release versions, including their channel
+        // suffix, not tags. Build metadata is not part of release precedence.
+        if (string.IsNullOrWhiteSpace(requested) || actual is null
+            || !string.Equals(requested.Split('+')[0], actual.Split('+')[0], StringComparison.Ordinal))
+            throw new InvalidDataException($"Requested PC Agent version '{requested}' was not verified; observed '{actual ?? "unknown"}'.");
+    }
+
+    internal static void ValidatePackageTarget(string? setup, string? agent, string? requested)
+    {
+        if (setup is null || agent is null || Compare(agent, setup) != 0)
+            throw new InvalidDataException("The complete matching Agent and Setup payload is required.");
+        ValidateRequestedVersion(requested, setup);
+        ValidateRequestedVersion(requested, agent);
+    }
+
+    internal static bool Retain(string? agent, string? setup, string package, string? requestedVersion = null)
+    {
+        ValidateRequestedVersion(requestedVersion, package);
         if (!(agent is not null && Compare(agent, package) > 0 || setup is not null && Compare(setup, package) > 0))
             return false;
         if (agent is null || setup is null || Compare(agent, setup) != 0)
             throw new InvalidOperationException("A newer PC Agent installation has mixed or missing components. Repair it with a matching or newer complete package.");
-        return true;
+        // Only an explicit standalone lifecycle target can override retention.
+        // Bundled installs, normal Setup and onboarding never supply this value.
+        return requestedVersion is null;
     }
 
     internal static string? VersionOf(string path)
@@ -77,6 +98,8 @@ internal static class PackageInstallation
     {
         if (sources.Count == 0) return;
         var directory = Path.GetDirectoryName(Path.GetFullPath(sources.Keys.First()))!;
+        LifecycleOperation.ValidateTree(directory);
+        foreach (var source in sources.Values) LifecycleOperation.SafePath(source);
         if (sources.Keys.Any(path => !string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), directory, StringComparison.OrdinalIgnoreCase)))
             throw new IOException("A package replacement must stay within one installation directory.");
         Recover(directory);
@@ -128,6 +151,7 @@ internal static class PackageInstallation
     internal static void Recover(string directory, string? runningSetupPath = null)
     {
         directory = Path.GetFullPath(directory);
+        LifecycleOperation.ValidateTree(directory);
         var recovery = Path.Combine(directory, ".pc-agent-install-recovery");
         var journal = Path.Combine(recovery, "manifest.json");
         if (!File.Exists(journal))

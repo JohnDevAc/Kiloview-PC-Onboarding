@@ -66,6 +66,8 @@ $multicast24Handover = Join-Path $projectRoot 'AGENT-MULTICAST-24-UPGRADE-HANDOV
 $updateHandover = Join-Path $projectRoot 'ONLINE-UPDATE-DEPLOYMENT-HANDOVER.md'
 $testMachineHandover = Join-Path $projectRoot 'TEST-MACHINE-HANDOVER.md'
 Copy-Item -LiteralPath $readme -Destination (Join-Path $output 'README.md') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'toolbox-lifecycle.json') -Destination $output -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot 'LIFECYCLE.md') -Destination $output -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'INTEROPERABILITY.md') -Destination (Join-Path $output 'INTEROPERABILITY.md') -Force
 Copy-Item -LiteralPath $license -Destination (Join-Path $output 'LICENSE.md') -Force
 Copy-Item -LiteralPath $remoteOnboardingHandover -Destination (Join-Path $output 'SERVER-REMOTE-ONBOARDING-HANDOVER.md') -Force
