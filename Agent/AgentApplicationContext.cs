@@ -355,7 +355,9 @@ internal sealed class AgentApplicationContext : ApplicationContext
             if (!check.UpdateAvailable)
             {
                 MessageBox.Show(
-                    $"NDI Configurator PC Agent {AgentMonitor.Version()} is up to date.",
+                    check.CurrentPrerelease
+                        ? $"You are running Development version {AgentMonitor.Version()}. No newer Production release is available from the Agent updater."
+                        : $"NDI Configurator PC Agent {AgentMonitor.Version()} is up to date on the Production channel.",
                     "NDI Configurator PC Agent",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -364,6 +366,7 @@ internal sealed class AgentApplicationContext : ApplicationContext
 
             var choice = MessageBox.Show(
                 $"NDI Configurator PC Agent {check.Release.Version} is available.\n\n"
+                + (check.CurrentPrerelease ? "This switches the Agent from Development to the Production release channel.\n\n" : "")
                 + "Download and install it now? Windows will request administrator permission after the package is verified.",
                 "NDI Configurator PC Agent Update",
                 MessageBoxButtons.YesNo,
@@ -386,7 +389,8 @@ internal sealed class AgentApplicationContext : ApplicationContext
                 UseShellExecute = true,
                 Verb = "runas"
             });
-            ExitThread();
+            // Setup validates the package and saved configuration before stopping
+            // this exact installed process. Keep monitoring through preflight/UAC.
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)

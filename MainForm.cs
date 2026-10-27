@@ -18,6 +18,8 @@ internal sealed class MainForm : Form
     private CancellationTokenSource? _operation;
     private NdiToolsStatus? _ndi;
     private AgentInstallationResult? _agentInstallation;
+    internal int ExitCode { get; private set; } = 1602;
+    private bool _installingPackage;
 
     public MainForm(Icon icon)
     {
@@ -41,7 +43,16 @@ internal sealed class MainForm : Form
             await CheckNdiAsync();
             if (_network.SelectedItem is NetworkChoice) await ScanAsync();
         };
-        FormClosing += (_, _) => _operation?.Cancel();
+        FormClosing += (_, e) =>
+        {
+            if (_installingPackage)
+            {
+                e.Cancel = true;
+                _serverStatus.Text = "Finishing package replacement before Setup can close…";
+                return;
+            }
+            _operation?.Cancel();
+        };
         FormClosed += (_, _) => _tooltips.Dispose();
     }
 
@@ -343,9 +354,10 @@ internal sealed class MainForm : Form
             // onboarding reports missing or outdated NDI Tools after applying settings.
             {
                 _serverStatus.Text = "Installing or updating NDI Configurator PC Agent…";
-                _agentInstallation = await Task.Run(
-                    () => AgentInstallationService.InstallOrUpdate(network),
-                    token);
+                _installingPackage = true;
+                try { _agentInstallation = await Task.Run(() => AgentInstallationService.InstallOrUpdate(network), token); }
+                finally { _installingPackage = false; }
+                ExitCode = _agentInstallation.Installed ? 0 : 1;
             }
             _serverStatus.Text = $"Searching {ScanDescription(network)} for NDI Job Configurator…";
             var servers = await JobConfiguratorDiscovery.FindAsync(network, null, token);
@@ -424,11 +436,13 @@ internal sealed class MainForm : Form
         }
         catch (OperationCanceledException) when (_operation.IsCancellationRequested)
         {
+            if (_agentInstallation is not { Installed: true }) ExitCode = 1602;
             activity.State = ActivityState.Idle;
             _serverStatus.Text = "Operation cancelled.";
         }
         catch (Exception ex)
         {
+            if (_agentInstallation is not { Installed: true }) ExitCode = 1;
             activity.State = ActivityState.Error;
             _serverStatus.ForeColor = UiTheme.Red;
             _serverStatus.Text = ex.Message;

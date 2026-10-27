@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "productId": "pc-agent",
+  "supportedActions": ["inspect", "install", "update", "repair", "uninstall"],
+  "entryPoint": "NDI Configurator PC Agent Setup.exe",
+  "entryPointKind": "native"
+}
